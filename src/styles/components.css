@@ -1,0 +1,838 @@
+/* ==========================================================================
+   Components
+
+   Two rules run through everything here:
+     - a measurement is a row with a label on the left and a monospaced
+       figure on the right, separated from its neighbours by a hairline;
+     - only one element on the page is allowed to be loud, and it is the
+       power-chain cascade.
+   ========================================================================== */
+
+/* ==========================================================================
+   Turbine selector
+   ========================================================================== */
+
+.turbine-list { display: flex; flex-direction: column; gap: 6px; }
+
+.turbine-option {
+  display: grid;
+  grid-template-columns: 3px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 9px 10px 9px 0;
+  text-align: left;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.turbine-option:hover { border-color: var(--rule-strong); background: var(--field); }
+
+.turbine-option[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, white);
+}
+
+/* The colour chip is the turbine's identity, carried through to the charts. */
+.turbine-option__chip {
+  align-self: stretch;
+  background: var(--accent);
+  border-radius: var(--radius) 0 0 var(--radius);
+  opacity: 0.35;
+  transition: opacity 0.15s;
+}
+
+.turbine-option[aria-pressed='true'] .turbine-option__chip { opacity: 1; }
+
+.turbine-option__body { min-width: 0; }
+
+.turbine-option__name {
+  font-size: var(--t-small);
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.turbine-option__meta {
+  font-size: var(--t-micro);
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.turbine-option__power {
+  font-size: var(--t-micro);
+  color: var(--ink-medium);
+  text-align: right;
+  padding-right: 2px;
+}
+
+/* A running turbine shows a small live pulse next to its output. */
+.pulse {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--good);
+  animation: pulse-fade 1.8s ease-in-out infinite;
+}
+
+.pulse[data-state='idle'] { background: var(--idle); animation: none; }
+.pulse[data-state='stop'] { background: var(--stop); animation: none; }
+.pulse[data-state='warn'] { background: var(--warn); }
+
+@keyframes pulse-fade { 50% { opacity: 0.25; } }
+
+/* ==========================================================================
+   Wind speed control
+   ========================================================================== */
+
+.wind-readout {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.wind-readout__value {
+  font-size: var(--t-hero);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.wind-readout__unit {
+  font-size: var(--t-base);
+  color: var(--ink-soft);
+}
+
+.wind-readout__descriptor {
+  margin-left: auto;
+  font-size: var(--t-micro);
+  color: var(--ink-soft);
+}
+
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 22px;
+  background: transparent;
+  cursor: grab;
+}
+
+.slider:active { cursor: grabbing; }
+
+.slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--signal) 0%,
+    var(--signal) var(--fill),
+    var(--field-sunken) var(--fill),
+    var(--field-sunken) 100%
+  );
+}
+
+.slider::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--field-sunken);
+}
+
+.slider::-moz-range-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--signal);
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: var(--paper);
+  border: 2px solid var(--signal);
+  box-shadow: 0 1px 3px rgba(13, 27, 42, 0.25);
+}
+
+.slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--paper);
+  border: 2px solid var(--signal);
+  box-shadow: 0 1px 3px rgba(13, 27, 42, 0.25);
+}
+
+/* The slider scale is annotated with this machine's operating thresholds,
+   so the control itself teaches where cut-in, rated and cut-out sit. */
+.wind-scale {
+  position: relative;
+  height: 26px;
+  margin-top: 1px;
+  border-top: 1px solid var(--rule);
+}
+
+.wind-scale__mark {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: 10px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.wind-scale__mark::before {
+  content: '';
+  width: 1px;
+  height: 5px;
+  background: var(--rule-strong);
+}
+
+.wind-scale__mark[data-kind='cut-in']::before { background: var(--good); }
+.wind-scale__mark[data-kind='rated']::before { background: var(--signal); }
+.wind-scale__mark[data-kind='cut-out']::before { background: var(--stop); }
+
+/* ==========================================================================
+   Buttons
+   ========================================================================== */
+
+.button-row { display: flex; gap: 6px; }
+
+.button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper);
+  font-size: var(--t-small);
+  font-weight: 500;
+  color: var(--ink-medium);
+  white-space: nowrap;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.button:hover { border-color: var(--rule-strong); background: var(--field); }
+
+.button--primary {
+  background: var(--signal);
+  border-color: var(--signal);
+  color: #fff;
+}
+
+.button--primary:hover { background: var(--signal-deep); border-color: var(--signal-deep); }
+
+.button--stop {
+  background: var(--paper);
+  border-color: var(--rule-strong);
+  color: var(--ink);
+}
+
+.button svg { flex: none; }
+
+/* ==========================================================================
+   Toggles
+   ========================================================================== */
+
+.toggle-list { display: flex; flex-direction: column; gap: 1px; }
+
+.toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 0;
+  font-size: var(--t-small);
+  color: var(--ink-medium);
+}
+
+.toggle + .toggle { border-top: 1px solid var(--rule); }
+
+.toggle__switch {
+  flex: none;
+  width: 30px;
+  height: 17px;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--field-sunken);
+  border: 1px solid var(--rule);
+  transition: background 0.18s, border-color 0.18s;
+}
+
+.toggle__switch::after {
+  content: '';
+  display: block;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--paper);
+  box-shadow: 0 1px 2px rgba(13, 27, 42, 0.3);
+  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.toggle[aria-pressed='true'] { color: var(--ink); }
+.toggle[aria-pressed='true'] .toggle__switch {
+  background: var(--signal);
+  border-color: var(--signal);
+}
+.toggle[aria-pressed='true'] .toggle__switch::after { transform: translateX(13px); }
+
+/* Segmented control, for the time-scale selector. */
+.segmented {
+  display: flex;
+  padding: 2px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--field);
+}
+
+.segmented__option {
+  flex: 1;
+  padding: 4px 0;
+  border-radius: 2px;
+  font-size: var(--t-micro);
+  font-family: var(--mono);
+  color: var(--ink-soft);
+  transition: background 0.15s, color 0.15s;
+}
+
+.segmented__option[aria-pressed='true'] {
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(13, 27, 42, 0.1);
+}
+
+/* ==========================================================================
+   Readouts — the primary measurement display
+   ========================================================================== */
+
+.readout-primary {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin-bottom: 1px;
+}
+
+.readout-primary__value {
+  font-size: var(--t-hero);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+}
+
+.readout-primary__unit {
+  font-size: var(--t-lead);
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+
+.readout-primary__caption {
+  font-size: var(--t-micro);
+  color: var(--ink-soft);
+  margin-bottom: 12px;
+}
+
+/* A measurement row: label left, figure right, hairline between. */
+.reading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: var(--t-small);
+}
+
+.reading + .reading { border-top: 1px solid var(--rule); }
+
+.reading__label { color: var(--ink-soft); min-width: 0; }
+
+.reading__note {
+  display: block;
+  font-size: 10px;
+  color: var(--ink-faint);
+  line-height: 1.35;
+}
+
+.reading__value {
+  color: var(--ink);
+  white-space: nowrap;
+  text-align: right;
+}
+
+.reading__unit {
+  color: var(--ink-soft);
+  font-size: var(--t-micro);
+  margin-left: 3px;
+}
+
+.reading--emphasis .reading__value { font-weight: 600; }
+
+/* Two-column readings, for the denser technical tables. */
+.reading-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 18px;
+}
+
+@media (max-width: 1040px) {
+  .reading-grid { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+}
+
+/* ==========================================================================
+   Status chip
+   ========================================================================== */
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px 3px 7px;
+  border-radius: 999px;
+  font-size: var(--t-micro);
+  font-weight: 500;
+  border: 1px solid;
+}
+
+.status[data-tone='good'] { color: var(--good); border-color: color-mix(in srgb, var(--good) 28%, white); background: color-mix(in srgb, var(--good) 7%, white); }
+.status[data-tone='warn'] { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 28%, white); background: color-mix(in srgb, var(--warn) 7%, white); }
+.status[data-tone='stop'] { color: var(--stop); border-color: color-mix(in srgb, var(--stop) 28%, white); background: color-mix(in srgb, var(--stop) 7%, white); }
+.status[data-tone='idle'] { color: var(--idle); border-color: var(--rule); background: var(--field); }
+
+.status__note {
+  margin-top: 6px;
+  font-size: var(--t-micro);
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
+/* ==========================================================================
+   Power chain — the one loud element on the page
+
+   Four bars whose widths are literally proportional to the watts at each
+   stage of the conversion, so the losses are visible as length rather than
+   asserted as a percentage. The Betz limit is drawn as a tick on the first
+   bar: the ceiling no open rotor can pass.
+   ========================================================================== */
+
+.chain { display: flex; flex-direction: column; gap: 9px; }
+
+.chain__stage { display: flex; flex-direction: column; gap: 3px; }
+
+.chain__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.chain__label { font-size: var(--t-micro); color: var(--ink-medium); }
+
+.chain__value {
+  font-size: var(--t-small);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.chain__value span { color: var(--ink-soft); font-size: 10px; margin-left: 2px; }
+
+.chain__track {
+  position: relative;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--field-sunken);
+  overflow: visible;
+}
+
+.chain__fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--stage-colour);
+  transition: width 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.chain__stage[data-stage='wind'] { --stage-colour: #bfd3ee; }
+.chain__stage[data-stage='aero'] { --stage-colour: #7ba4de; }
+.chain__stage[data-stage='mech'] { --stage-colour: #3b6fc4; }
+.chain__stage[data-stage='electrical'] { --stage-colour: var(--signal-deep); }
+
+.chain__betz {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 1px;
+  background: var(--ink-medium);
+}
+
+.chain__betz::after {
+  content: attr(data-label);
+  position: absolute;
+  left: 4px;
+  top: -1px;
+  font-size: 9px;
+  color: var(--ink-medium);
+  white-space: nowrap;
+}
+
+.chain__note {
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--ink-faint);
+  line-height: 1.45;
+}
+
+/* ==========================================================================
+   Notices
+   ========================================================================== */
+
+.notice {
+  padding: 9px 11px;
+  border-left: 2px solid var(--rule-strong);
+  background: var(--field);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  font-size: var(--t-micro);
+  line-height: 1.5;
+  color: var(--ink-medium);
+}
+
+.notice--signal { border-left-color: var(--signal); }
+
+/* ==========================================================================
+   Charts
+   ========================================================================== */
+
+.chart-block + .chart-block { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--rule); }
+
+.chart-block__head { margin-bottom: 8px; }
+
+.chart-block__title { font-size: var(--t-small); font-weight: 600; }
+
+.chart-block__subtitle { font-size: var(--t-micro); color: var(--ink-soft); }
+
+.chart-frame { width: 100%; }
+
+.chart-empty {
+  display: grid;
+  place-items: center;
+  height: 150px;
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--radius);
+  color: var(--ink-faint);
+  font-size: var(--t-micro);
+  text-align: center;
+  padding: 0 20px;
+}
+
+.chart-tooltip {
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  box-shadow: var(--lift);
+  font-size: var(--t-micro);
+}
+
+.chart-tooltip__head {
+  font-weight: 600;
+  margin-bottom: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.chart-tooltip__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.chart-tooltip__swatch {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 1px;
+  margin-right: 6px;
+}
+
+.chart-tooltip__value { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 6px;
+  font-size: var(--t-micro);
+  color: var(--ink-soft);
+}
+
+.chart-legend__item { display: inline-flex; align-items: center; gap: 5px; }
+
+.chart-legend__swatch { width: 9px; height: 3px; border-radius: 1px; }
+
+/* ==========================================================================
+   Comparison table
+   ========================================================================== */
+
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-small);
+}
+
+.compare-table th,
+.compare-table td {
+  padding: 7px 8px;
+  text-align: right;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+
+.compare-table th:first-child,
+.compare-table td:first-child {
+  text-align: left;
+  color: var(--ink-soft);
+  white-space: normal;
+  min-width: 104px;
+}
+
+.compare-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule-strong);
+  font-weight: 600;
+  z-index: 1;
+}
+
+.compare-table__head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+
+.compare-table__head span:last-child {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+.compare-table__accent {
+  display: block;
+  height: 2px;
+  border-radius: 1px;
+  margin-top: 4px;
+  background: var(--accent);
+}
+
+.compare-table tbody tr:hover td { background: var(--field); }
+
+.compare-table td[data-best='true'] { font-weight: 600; color: var(--signal-deep); }
+
+.table-scroll { overflow-x: auto; margin: 0 -16px; padding: 0 16px; }
+
+/* ==========================================================================
+   Theory panel
+   ========================================================================== */
+
+.prose { font-size: var(--t-small); line-height: 1.6; color: var(--ink-medium); }
+.prose p + p { margin-top: 9px; }
+.prose strong { color: var(--ink); font-weight: 600; }
+
+.formula {
+  padding: 12px 14px;
+  margin: 10px 0;
+  background: var(--field);
+  border-radius: var(--radius);
+  border: 1px solid var(--rule);
+}
+
+.formula__expression {
+  font-size: var(--t-lead);
+  text-align: center;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+}
+
+/* Symbol legend: one term per row, symbols aligned in their own column so
+   the eye can run down them to find the one it is looking for. */
+.formula__terms {
+  margin: 10px 0 0;
+  padding-top: 9px;
+  border-top: 1px solid var(--rule);
+  font-size: var(--t-micro);
+  line-height: 1.55;
+}
+
+.formula__term {
+  display: grid;
+  grid-template-columns: 2.1em 1fr;
+  gap: 0 10px;
+}
+
+.formula__term + .formula__term { margin-top: 2px; }
+
+.formula__term dt { color: var(--ink); text-align: right; }
+
+.formula__term dd { margin: 0; color: var(--ink-soft); }
+
+.theory-block + .theory-block {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+}
+
+.theory-block__title {
+  font-size: var(--t-base);
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--ink);
+}
+
+/* ==========================================================================
+   In-scene turbine tags
+   ========================================================================== */
+
+.turbine-tag {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--tag-accent);
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 2px 10px rgba(13, 27, 42, 0.16);
+  text-align: left;
+  white-space: nowrap;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+
+.turbine-tag:hover { background: #fff; }
+
+.turbine-tag.is-selected {
+  background: #fff;
+  border-color: var(--tag-accent);
+  box-shadow: 0 3px 16px rgba(13, 27, 42, 0.24);
+}
+
+.turbine-tag__type {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tag-accent);
+  letter-spacing: 0.01em;
+}
+
+.turbine-tag__name { font-size: 12px; font-weight: 500; color: var(--ink); }
+
+.turbine-tag__meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-soft);
+}
+
+/* ==========================================================================
+   Loader
+   ========================================================================== */
+
+.scene-loader {
+  width: 240px;
+  text-align: center;
+  color: var(--ink);
+  font-family: var(--sans);
+}
+
+.scene-loader__spinner {
+  width: 26px;
+  height: 26px;
+  margin: 0 auto 12px;
+  border: 2px solid var(--rule-strong);
+  border-top-color: var(--signal);
+  border-radius: 50%;
+  animation: rotor-spin 0.85s linear infinite;
+}
+
+.scene-loader__title { font-size: var(--t-small); font-weight: 600; }
+
+.scene-loader__hint { font-size: var(--t-micro); color: var(--ink-soft); margin-top: 2px; }
+
+.scene-loader__bar {
+  height: 3px;
+  margin-top: 10px;
+  border-radius: 2px;
+  background: var(--field-sunken);
+  overflow: hidden;
+}
+
+.scene-loader__fill {
+  height: 100%;
+  background: var(--signal);
+  transition: width 0.2s;
+}
+
+/* Screen-reader-only, for table captions that would be redundant visually. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The name and meta line are stacked, not inline; without this they
+   overlap inside the grid cell. */
+.turbine-option__name,
+.turbine-option__meta { display: block; }
+
+/* The y-axis unit, carried in the chart subtitle rather than as a rotated
+   axis label that would collide with the tick values. */
+.chart-block__unit {
+  float: right;
+  color: var(--ink-medium);
+  font-size: 10px;
+}
+
+/* ==========================================================================
+   Small multiples — one energy trace per turbine, each on its own scale
+   ========================================================================== */
+
+.trace + .trace { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--rule); }
+
+.trace__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 2px;
+  font-size: var(--t-micro);
+}
+
+.trace__name { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-medium); }
+
+.trace__swatch { width: 9px; height: 3px; border-radius: 1px; }
+
+.trace__value { color: var(--ink); font-weight: 500; }

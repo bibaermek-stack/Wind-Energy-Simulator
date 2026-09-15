@@ -1,0 +1,374 @@
+/* ==========================================================================
+   Wind Energy Simulator — design tokens, reset, shell
+
+   The visual model is a laboratory instrument, not a web dashboard: a
+   continuous readout panel with hairline rules between measurements,
+   monospaced figures that align in a column, and no decoration that is not
+   carrying information.
+
+   Palette is white / blue / navy as specified. The three turbines are the
+   one place other hues appear, because three data series have to be
+   separable at a glance in the charts.
+   ========================================================================== */
+
+:root {
+  /* --- surfaces ------------------------------------------------------- */
+  --paper: #ffffff;
+  --field: #f4f8fc;          /* pale blue panel ground */
+  --field-sunken: #eaf1f8;
+  --rule: #dae4ef;           /* hairline */
+  --rule-strong: #b9c9dc;
+
+  /* --- ink ------------------------------------------------------------ */
+  --ink: #0d1b2a;            /* deep navy, the near-black of this palette */
+  --ink-medium: #33465c;
+  --ink-soft: #64798f;
+  --ink-faint: #93a6ba;
+
+  /* --- signal --------------------------------------------------------- */
+  --signal: #1d4ed8;
+  --signal-deep: #1e3a8a;
+  --signal-wash: #e6edfb;
+
+  /* --- state ---------------------------------------------------------- */
+  --good: #15803d;
+  --warn: #b45309;
+  --stop: #b91c1c;
+  --idle: #64798f;
+
+  /* --- turbine identities --------------------------------------------- */
+  --hawt: #1d4ed8;
+  --vawt: #0d9488;
+  --small: #b45309;
+
+  /* --- type ----------------------------------------------------------- */
+  --sans: 'IBM Plex Sans', 'Noto Sans', 'Segoe UI', system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', 'Cascadia Mono', ui-monospace, monospace;
+
+  /* Modular scale, ratio 1.25 from a 14px base. Dense, like a datasheet. */
+  --t-micro: 0.6875rem;   /* 11    */
+  --t-small: 0.78125rem;  /* 12.5  */
+  --t-base: 0.875rem;     /* 14    */
+  --t-lead: 1.09375rem;   /* 17.5  */
+  --t-title: 1.375rem;    /* 22    */
+  --t-readout: 1.75rem;   /* 28    */
+  --t-hero: 2.125rem;     /* 34    */
+
+  /* --- geometry ------------------------------------------------------- */
+  --radius: 4px;
+  --radius-lg: 8px;
+  --rail-left: 268px;
+  --rail-right: 372px;
+  --rail-right-wide: 560px;
+  --header-height: 52px;
+  --lift: 0 1px 2px rgba(13, 27, 42, 0.06), 0 12px 32px rgba(13, 27, 42, 0.10);
+}
+
+/* ==========================================================================
+   Reset
+   ========================================================================== */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--sans);
+  font-size: var(--t-base);
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--field);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+
+h1, h2, h3, h4, p, figure { margin: 0; }
+ul { margin: 0; padding: 0; list-style: none; }
+
+button {
+  font: inherit;
+  color: inherit;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Figures are monospaced and tabular everywhere, so columns of numbers
+   line up and a changing readout does not make the layout twitch. */
+.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* ==========================================================================
+   Shell
+   ========================================================================== */
+
+.app {
+  display: grid;
+  grid-template-rows: var(--header-height) 1fr;
+  height: 100%;
+  position: relative;
+}
+
+.stage {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(#cfe0f2, #eaf1f8);
+}
+
+.stage__canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.stage__hint {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 3;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--rule);
+  color: var(--ink-soft);
+  font-size: var(--t-micro);
+  pointer-events: none;
+}
+
+/* ==========================================================================
+   Header
+   ========================================================================== */
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 0 18px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule);
+  z-index: 20;
+}
+
+.header__mark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-right: 20px;
+  border-right: 1px solid var(--rule);
+  height: 100%;
+}
+
+/* A three-blade rotor glyph, drawn rather than imported, spinning slowly.
+   The only ambient motion on the page. */
+.header__rotor {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  color: var(--signal);
+  animation: rotor-spin 9s linear infinite;
+}
+
+@keyframes rotor-spin { to { transform: rotate(360deg); } }
+
+.header__titles { display: flex; flex-direction: column; line-height: 1.15; }
+
+.header__title {
+  font-size: var(--t-base);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+.header__subtitle {
+  font-size: var(--t-micro);
+  color: var(--ink-soft);
+}
+
+.header__tabs {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.tab {
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  font-size: var(--t-small);
+  font-weight: 500;
+  color: var(--ink-medium);
+  transition: background 0.15s, color 0.15s;
+}
+
+.tab:hover { background: var(--field); }
+
+.tab[aria-selected='true'] {
+  background: var(--signal-wash);
+  color: var(--signal-deep);
+}
+
+.header__badge {
+  padding: 4px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  font-size: var(--t-micro);
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   Rails — the floating instrument panels
+   ========================================================================== */
+
+.rail {
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.93);
+  backdrop-filter: blur(14px) saturate(1.2);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--lift);
+  overflow: hidden;
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.rail--left { left: 14px; width: var(--rail-left); }
+.rail--right { right: 14px; width: var(--rail-right); }
+.rail--right[data-wide='true'] { width: var(--rail-right-wide); }
+
+.rail--left[data-collapsed='true'] { transform: translateX(calc(-100% - 20px)); }
+.rail--right[data-collapsed='true'] { transform: translateX(calc(100% + 20px)); }
+
+.rail__scroll {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-strong) transparent;
+}
+
+.rail__scroll::-webkit-scrollbar { width: 8px; }
+.rail__scroll::-webkit-scrollbar-thumb {
+  background: var(--rule-strong);
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* Panel handle, for collapsing a rail out of the way of the 3D scene. */
+.rail-handle {
+  position: absolute;
+  top: 50%;
+  z-index: 11;
+  width: 18px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  transform: translateY(-50%);
+  background: rgba(255, 255, 255, 0.93);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--rule);
+  color: var(--ink-soft);
+  box-shadow: var(--lift);
+  transition: color 0.15s, background 0.15s;
+}
+
+.rail-handle:hover { color: var(--signal); background: var(--paper); }
+.rail-handle--left { left: 0; border-radius: 0 var(--radius) var(--radius) 0; border-left: none; }
+.rail-handle--right { right: 0; border-radius: var(--radius) 0 0 var(--radius); border-right: none; }
+
+/* ==========================================================================
+   Sections inside a rail
+   ========================================================================== */
+
+.section { padding: 14px 16px; }
+.section + .section { border-top: 1px solid var(--rule); }
+
+.section__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.section__title {
+  font-size: var(--t-small);
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.003em;
+}
+
+.section__aside {
+  font-size: var(--t-micro);
+  color: var(--ink-soft);
+}
+
+/* ==========================================================================
+   Responsive — tablet and narrow desktop
+   ========================================================================== */
+
+@media (max-width: 1280px) {
+  :root { --rail-right: 330px; --rail-right-wide: 470px; --rail-left: 244px; }
+}
+
+@media (max-width: 1040px) {
+  .rail--right,
+  .rail--right[data-wide='true'] {
+    left: 14px;
+    right: 14px;
+    top: auto;
+    width: auto;
+    max-height: 48%;
+  }
+  .rail--right[data-collapsed='true'] { transform: translateY(calc(100% + 20px)); }
+  .rail-handle--right {
+    top: auto !important;
+    bottom: calc(48% + 8px);
+    right: 50% !important;
+    width: 52px;
+    height: 18px;
+    transform: translateX(50%);
+    border-radius: var(--radius) var(--radius) 0 0;
+    border-right: 1px solid var(--rule);
+    border-bottom: none;
+  }
+  .rail-handle--right svg { transform: rotate(90deg); }
+  .stage__hint { display: none; }
+
+  /* Below this width the right rail becomes a bottom sheet, so the left
+     rail has to stop above it -- otherwise its lower controls sit under
+     the sheet and cannot be reached. */
+  .stage[data-sheet-open='true'] .rail--left { bottom: calc(48% + 22px); }
+  .stage[data-sheet-open='true'] .rail-handle--left { top: 26%; }
+}
+
+@media (max-width: 760px) {
+  :root { --rail-left: 210px; }
+  .header__badge { display: none; }
+  .header__subtitle { display: none; }
+}

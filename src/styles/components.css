@@ -593,6 +593,7 @@
 
 .compare-table {
   width: 100%;
+  min-width: 420px;
   border-collapse: collapse;
   font-size: var(--t-small);
 }
@@ -836,3 +837,184 @@
 .trace__swatch { width: 9px; height: 3px; border-radius: 1px; }
 
 .trace__value { color: var(--ink); font-weight: 500; }
+
+/* ==========================================================================
+   Slider field — a labelled control with its own value readout
+   ========================================================================== */
+
+.field + .field { margin-top: 10px; }
+
+.field__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 1px;
+}
+
+.field__label { font-size: var(--t-small); color: var(--ink-medium); }
+
+.field__value { font-size: var(--t-small); color: var(--ink); white-space: nowrap; }
+
+/* A disabled slider is still shown, and still moves, because watching the
+   tracker drive it is how the tracking system makes itself visible. */
+.field.is-disabled { opacity: 0.72; }
+.field.is-disabled .slider { cursor: default; }
+.field.is-disabled .slider::-webkit-slider-thumb { border-color: var(--ink-faint); }
+.field.is-disabled .slider::-moz-range-thumb { border-color: var(--ink-faint); }
+
+/* ==========================================================================
+   Mode switch — the primary WIND | SOLAR | HYBRID control
+   ========================================================================== */
+
+.mode-switch {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  background: var(--field);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+}
+
+.mode-switch__option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  padding: 5px 14px;
+  border-radius: var(--radius);
+  line-height: 1.2;
+  color: var(--ink-soft);
+  transition: background 0.2s cubic-bezier(0.22, 1, 0.36, 1), color 0.2s, box-shadow 0.2s;
+}
+
+.mode-switch__option:hover { color: var(--ink-medium); }
+
+.mode-switch__option[aria-pressed='true'] {
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgba(13, 27, 42, 0.14);
+}
+
+.mode-switch__label { font-size: var(--t-base); font-weight: 600; letter-spacing: -0.005em; }
+
+.mode-switch__sub { font-size: 10px; color: var(--ink-soft); white-space: nowrap; }
+
+/* The active mode's accent, as a rule under its label. */
+.mode-switch__option[aria-pressed='true'] .mode-switch__label {
+  box-shadow: inset 0 -2px 0 var(--mode-accent);
+}
+
+/* ==========================================================================
+   Fixed vs tracking — the headline pair
+   ========================================================================== */
+
+.versus { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+.versus__side {
+  padding: 9px 11px;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 4%, white);
+}
+
+.versus__label {
+  display: block;
+  font-size: var(--t-micro);
+  color: var(--ink-soft);
+  margin-bottom: 2px;
+}
+
+.versus__value {
+  display: block;
+  font-size: var(--t-title);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+/* ==========================================================================
+   Energy flow diagram
+   ========================================================================== */
+
+.flow-chain { display: flex; flex-direction: column; }
+
+.flow-node {
+  padding: 8px 11px;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--paper);
+  /* Nodes fade when little energy is passing through them, so the diagram
+     reads as a live circuit rather than a static picture. */
+  opacity: calc(0.45 + 0.55 * var(--intensity));
+  transition: opacity 0.3s;
+}
+
+.flow-node--emphasis {
+  background: color-mix(in srgb, var(--accent) 6%, white);
+  border-color: color-mix(in srgb, var(--accent) 35%, white);
+  border-left-color: var(--accent);
+}
+
+.flow-node__label {
+  display: block;
+  font-size: var(--t-micro);
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.01em;
+}
+
+.flow-node__value {
+  display: block;
+  font-size: var(--t-base);
+  color: var(--ink);
+  line-height: 1.3;
+}
+
+.flow-node__note { display: block; font-size: 10px; color: var(--ink-soft); }
+
+.flow-arrow {
+  height: 18px;
+  margin-left: 14px;
+  display: flex;
+  align-items: center;
+}
+
+.flow-arrow__track {
+  position: relative;
+  width: 2px;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--rule);
+  overflow: hidden;
+}
+
+/* A pulse travelling down the connector at a speed set by the power
+   flowing through it. At zero intensity it is invisible and still. */
+.flow-arrow__pulse {
+  position: absolute;
+  left: 0;
+  width: 2px;
+  height: 8px;
+  border-radius: 1px;
+  background: var(--accent);
+  opacity: var(--intensity);
+  animation: flow-travel calc(2.4s - 1.7s * var(--intensity)) linear infinite;
+}
+
+@keyframes flow-travel {
+  from { transform: translateY(-10px); }
+  to { transform: translateY(20px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-arrow__pulse { animation: none; top: 5px; }
+}
+
+.flow-junction { margin-top: 4px; }
+
+@media (max-width: 1040px) {
+  .mode-switch__sub { display: none; }
+}

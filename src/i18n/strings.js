@@ -17,19 +17,204 @@ export const UNITS = {
   squareMetre: 'm²',
   density: 'kg/m³',
   percent: '%',
+  degree: '°',
+  irradiance: 'W/m²',
+  celsius: '°C',
 };
 
 export const T = {
   // --- shell ------------------------------------------------------------
-  appTitle: 'Wind Energy Simulator',
-  appSubtitle: 'Жел энергиясының 3D интерактивті симуляторы',
+  appTitle: 'Renewable Energy Simulator',
+  appSubtitle: 'Жаңартылатын энергияның 3D интерактивті симуляторы',
   labBadge: 'Жаңартылатын энергия зертханасы',
 
   // --- tabs -------------------------------------------------------------
   tabLive: 'Бақылау',
   tabCharts: 'Графиктер',
   tabCompare: 'Салыстыру',
+  tabFlow: 'Энергия ағыны',
   tabTheory: 'Теория',
+
+  // ======================================================================
+  //  SOLAR
+  // ======================================================================
+
+  // --- sun --------------------------------------------------------------
+  sun: 'Күн',
+  sunSection: 'Күннің орны',
+  sunAltitude: 'Күннің биіктігі',
+  sunAzimuth: 'Күннің азимуты',
+  sunAltitudeNote: 'Көкжиектен жоғары бұрыш',
+  sunAzimuthNote: 'Солтүстіктен сағат тілімен',
+  timeOfDay: 'Тәулік уақыты',
+  solarNoon: 'Күн тал түсте',
+  sunrise: 'Күннің шығуы',
+  sunset: 'Күннің батуы',
+  daylight: 'Күндізгі уақыт',
+  belowHorizon: 'Күн көкжиектен төмен',
+  site: 'Орналасқан жері',
+  siteNote: 'Ендік және жыл күні',
+
+  // --- irradiance -------------------------------------------------------
+  irradiance: 'Күн радиациясы',
+  beamIrradiance: 'Тікелей радиация',
+  beamIrradianceNote: 'Күн дискісінен тікелей келетін сәуле (DNI)',
+  diffuseIrradiance: 'Шашыранды радиация',
+  diffuseIrradianceNote: 'Аспаннан шашырап келетін сәуле',
+  planeIrradiance: 'Панель жазықтығындағы радиация',
+  planeIrradianceNote: 'G — панельге нақты түсетін радиация',
+
+  // --- panel ------------------------------------------------------------
+  solarPanel: 'Күн панелі',
+  panelSection: 'Панель бағдары',
+  panelTilt: 'Еңкею бұрышы (tilt)',
+  panelAzimuth: 'Азимут (azimuth)',
+  panelTiltNote: '0° — көлденең, 90° — тік',
+  panelAzimuthNote: '180° — оңтүстікке қарайды',
+  incidenceAngle: 'Түсу бұрышы θ',
+  incidenceAngleNote: 'Күн сәулесі мен панель нормалы арасындағы бұрыш',
+  cosTheta: 'cos θ',
+  cosThetaNote: 'Бағдардың тиімділік коэффициенті',
+  arraySize: 'Массив өлшемі',
+  panelArea: 'Панель ауданы',
+  panelAreaNote: '3D модельден өлшенген',
+  panelEfficiency: 'Панель ПӘК-і (η)',
+  moduleCount: 'Модуль саны',
+  inverterEfficiency: 'Инвертор ПӘК-і',
+  temperatureCoefficient: 'Температуралық коэффициент',
+  noct: 'NOCT',
+  cellTemperature: 'Элемент температурасы',
+  cellTemperatureNote: 'Күн сәулесінен қызады — қуат төмендейді',
+  soiling: 'Ластану коэффициенті',
+
+  // --- tracking ---------------------------------------------------------
+  tracking: 'Күнді бақылау (tracking)',
+  trackingOn: 'ҚОСУЛЫ',
+  trackingOff: 'ӨШІРУЛІ',
+  trackingNote: 'Екі осьті бақылау жүйесі панельді күнге қаратып ұстайды',
+  trackingManualNote: 'Бақылау өшірулі — бұрыштарды қолмен реттеңіз',
+
+  statusOptimal: 'ОҢТАЙЛЫ БАҒДАР',
+  statusGood: 'Жақсы бағдар',
+  statusMisaligned: 'БАҒДАР НАШАР — РАДИАЦИЯ АЗ',
+  statusNight: 'Күн батты',
+  statusDawn: 'Таң / ымырт',
+
+  statusOptimalNote: 'Панель күнге тік қарайды, cos θ ≈ 1',
+  statusMisalignedNote: 'Бұрыш үлкен — панельге түсетін радиация азайды',
+  statusNightNote: 'Күн көкжиектен төмен — өндіріс нөл',
+
+  // --- weather ----------------------------------------------------------
+  weather: 'Ауа райы',
+  cloudCover: 'Бұлттылық',
+  cloudCoverNote: 'Тікелей радиацияны азайтады',
+  ambientTemperature: 'Ауа температурасы',
+  clear: 'Ашық',
+  partlyCloudy: 'Аздап бұлтты',
+  cloudy: 'Бұлтты',
+  overcast: 'Тұтас бұлт',
+
+  // --- solar energy -----------------------------------------------------
+  solarPower: 'Күн қуаты',
+  dailyEnergy: 'Тәуліктік энергия',
+  powerIncident: 'Панельге түсетін қуат',
+  powerIncidentNote: 'G × A — жарықтың толық қуаты',
+  powerDc: 'Тұрақты ток қуаты (DC)',
+  powerDcNote: 'Фотоэлектрлік түрлену, η және температура ескерілген',
+  powerAc: 'Айнымалы ток қуаты (AC)',
+  powerAcNote: 'Инвертордан кейінгі нақты қуат',
+
+  // --- solar charts -----------------------------------------------------
+  chartSolarDayTitle: 'Тәулік бойы қуат өндірісі',
+  chartSolarDaySubtitle: 'Бақылаушы және бекітілген панельдерді салыстыру',
+  chartSunPathTitle: 'Күннің тәуліктік жолы',
+  chartSunPathSubtitle: 'Биіктік пен азимуттың өзгеруі',
+  chartIncidenceTitle: 'Түсу бұрышы мен қуат',
+  chartIncidenceSubtitle: 'cos θ қуатты қалай анықтайды',
+  legendTracking: 'Бақылаушы панель',
+  legendFixed: 'Бекітілген панель',
+  legendAltitude: 'Күннің биіктігі',
+  axisTimeOfDay: 'Тәулік уақыты',
+  axisAltitude: 'Биіктік, °',
+
+  // --- tracking comparison ----------------------------------------------
+  compareTracking: 'Бақылау жүйесін салыстыру',
+  compareTrackingIntro:
+    'Екі бірдей панель бір мезгілде жұмыс істейді: біреуі бекітілген, '
+    + 'екіншісі күнді бақылайды. Ауа райы, радиация, уақыт, аудан және ПӘК '
+    + 'екеуінде де бірдей — айырмашылық тек бағдарда.',
+  panelA: 'Панель A — бекітілген',
+  panelB: 'Панель B — бақылаушы',
+  trackingGain: 'Бақылаудың пайдасы',
+  trackingGainNote: 'Бақылаушы панельдің артықшылығы',
+
+  // --- energy flow ------------------------------------------------------
+  energyFlow: 'Энергияның жолы',
+  flowSun: 'КҮН',
+  flowRays: 'Күн сәулелері',
+  flowPanel: 'КҮН ПАНЕЛІ',
+  flowCells: 'Фотоэлектрлік элементтер',
+  flowInverter: 'ИНВЕРТОР',
+  flowWind: 'ЖЕЛ',
+  flowTurbine: 'ТУРБИНА',
+  flowGenerator: 'ГЕНЕРАТОР',
+  flowManagement: 'ЭНЕРГИЯНЫ БАСҚАРУ',
+  flowGrid: 'ЖЕЛІ / ТҰТЫНУШЫ',
+  flowTotal: 'Жалпы қуат',
+
+  // --- hybrid -----------------------------------------------------------
+  hybrid: 'Гибридті жүйе',
+  hybridIntro:
+    'Жел турбиналары мен күн панелі бір мезгілде жұмыс істейді. Екеуі де '
+    + 'нақты өлшем қатынасында орналасқан.',
+  windPowerTotal: 'Жел қуаты',
+  solarPowerTotal: 'Күн қуаты',
+  totalPower: 'Жалпы жаңартылатын қуат',
+  totalEnergy: 'Жалпы энергия',
+  shareWind: 'Желдің үлесі',
+  shareSolar: 'Күннің үлесі',
+
+  // --- solar theory -----------------------------------------------------
+  theorySolarTitle: 'Күн энергиясының физикасы',
+  theorySolarFormulaNote:
+    'Панельге түсетін қуат оның ауданына, радиацияға және ең бастысы — '
+    + 'күн сәулесінің түсу бұрышына тәуелді. cos θ дәл осы бағдардың '
+    + 'әсерін көрсетеді.',
+  theorySunPathTitle: 'Күннің аспандағы жолы',
+  theorySunPathBody:
+    'Күннің орны екі бұрышпен анықталады: биіктік (altitude) — көкжиектен '
+    + 'жоғары бұрыш, және азимут — солтүстіктен сағат тілімен есептелетін '
+    + 'бағыт. Таңертең күн шығыста әрі төмен, түсте ең жоғары нүктеде, '
+    + 'кешке батыста қайта төмендейді. Биіктік неғұрлым төмен болса, сәуле '
+    + 'атмосферада соғұрлым ұзақ жол жүреді және әлсірейді.',
+  theoryIncidenceTitle: 'Түсу бұрышы неге маңызды?',
+  theoryIncidenceBody:
+    'Панель күнге тік қараса (θ = 0), оның бүкіл ауданы сәулені толық '
+    + 'қабылдайды. Бұрыш үлкейген сайын тиімді аудан cos θ есе азаяды: '
+    + '60° бұрышта панель радиацияның тек жартысын ғана алады. Екі осьті '
+    + 'бақылау жүйесінің мақсаты — cos θ мәнін бір деңгейінде ұстау.',
+  theoryTrackingTitle: 'Бақылау жүйесі',
+  theoryTrackingBody:
+    'Бекітілген панель тек түсте ғана оңтайлы бағдарда болады, ал таңертең '
+    + 'мен кешке көп энергия жоғалтады. Екі осьті бақылау жүйесі панельді '
+    + 'күннің соңынан жүргізіп, тәулік бойы cos θ ≈ 1 ұстайды. Осы '
+    + 'симуляцияда бақылау шамамен 30 % қосымша энергия береді.',
+  theoryTemperatureTitle: 'Температураның әсері',
+  theoryTemperatureBody:
+    'Кремний қызған сайын кернеуі төмендейді. Әр градус үшін қуат шамамен '
+    + '0,4 % азаяды. Сондықтан панель элементтерінің температурасы ауа '
+    + 'температурасынан жоғары болады — NOCT моделі осыны ескереді. Суық '
+    + 'әрі ашық күн — күн панелі үшін ең тиімді жағдай.',
+
+  solarExampleNotice:
+    'Ескерту: панель ауданы (13,09 m²) мен өлшемдері 3D модельден нақты '
+    + 'өлшенген. Қалған параметрлер (ПӘК, температуралық коэффициент, NOCT, '
+    + 'инвертор ПӘК-і) — осы класс жабдығына тән мысал мәндер.',
+
+  solarModelNotice:
+    'Бұл — жеңілдетілген оқу моделі. Күннің орны астрономиялық формулалармен '
+    + 'есептеледі, бірақ спектрлік әсерлер, шағылысу жоғалтулары және '
+    + 'панельдер арасындағы көлеңке ескерілмейді.',
 
   // --- turbine selection ------------------------------------------------
   selectTurbine: 'Турбинаны таңдаңыз',
@@ -238,4 +423,21 @@ export function windDescriptor(speed) {
   if (speed < 11) return T.moderate;
   if (speed < 20) return T.strong;
   return T.storm;
+}
+
+/** Maps a solar operating status to its Kazakh label and tone. */
+export const SOLAR_STATUS = {
+  optimal: { text: T.statusOptimal, tone: 'good', note: T.statusOptimalNote },
+  good: { text: T.statusGood, tone: 'good', note: null },
+  misaligned: { text: T.statusMisaligned, tone: 'warn', note: T.statusMisalignedNote },
+  dawn: { text: T.statusDawn, tone: 'idle', note: null },
+  night: { text: T.statusNight, tone: 'idle', note: T.statusNightNote },
+};
+
+/** Descriptor for the cloud-cover slider. */
+export function cloudDescriptor(fraction) {
+  if (fraction < 0.1) return T.clear;
+  if (fraction < 0.45) return T.partlyCloudy;
+  if (fraction < 0.85) return T.cloudy;
+  return T.overcast;
 }

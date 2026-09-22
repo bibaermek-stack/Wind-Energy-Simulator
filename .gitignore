@@ -2,3 +2,4 @@ node_modules/
 dist/
 .playwright-mcp/
 *.local
+models-source/solar_catalogue_original.glb

@@ -1,19 +1,26 @@
-# Wind Energy Simulator
+# Renewable Energy Simulator
 
-An interactive 3D wind-energy simulation for university physics and
-renewable-energy teaching. Three wind turbines of different types stand in one
-landscape at true relative scale; a single wind-speed control drives all three,
-and a live dashboard reports what each is doing and why.
+An interactive 3D renewable-energy laboratory for university physics teaching.
+Three wind turbines of different types stand in one landscape at true relative
+scale, and a two-axis solar tracker — cut from the supplied catalogue model —
+shares the same site. A mode switch at the top of the app selects **wind**,
+**solar**, or **hybrid**; the wind simulation is exactly the one that existed
+before the solar work, and hybrid simply runs both at once.
 
 Interface language is Kazakh, with the standard scientific vocabulary left in
-English (HAWT, VAWT, Cp, RPM, m/s, kW, Betz) so the readouts map directly onto
-the textbook literature.
+English (HAWT, VAWT, Cp, RPM, m/s, kW, Betz, PV, DNI) so the readouts map
+directly onto the textbook literature.
 
 ```
 npm install
-npm run models      # prepare the three .glb models (only needed once)
+npm run models      # prepare the .glb models (only needed once)
+npm run verify      # audit both power models
 npm run dev         # http://localhost:5178
 ```
+
+The project folder name contains a semicolon (`Desktop\;tk`). On Windows that
+splits `PATH`, so the npm scripts call Vite through `node ./node_modules/vite/bin/vite.js`
+rather than a bare `vite` binary.
 
 ---
 
@@ -96,7 +103,8 @@ numbers appear.
 ### Verifying the physics
 
 ```
-node scripts/verify-physics.mjs
+npm run verify:physics
+npm run verify:solar
 ```
 
 Prints the worked numbers for all three machines and asserts the invariants
@@ -104,6 +112,61 @@ across the whole 0–30 m/s range: Cp never exceeds Betz, output never exceeds
 rated, electrical ≤ mechanical ≤ aerodynamic ≤ available, nothing generates
 below cut-in or above cut-out, Cp peaks exactly at λ_optimal, and tip speeds
 stay physically plausible.
+
+---
+
+## Solar mode
+
+The solar side is an addition, not a rewrite. The wind code is untouched; a
+mode layer sits above it. Switching to **Күн** hides the turbines and frames
+the array; **Гибрид** shows both at true scale.
+
+### The model
+
+`solar pahels.glb` is a manufacturer's catalogue — ~18 mounting products on
+one plot, 65 MB, no hierarchy, geometry batched by material. It cannot be
+re-parented the way the HAWT rotor was. `scripts/segment-solar.mjs` rebuilds
+assembly #1 from the triangles up:
+
+```
+SolarPanelRoot                 azimuth, rotates about Y
+  SolarPanelBase               posts + footings, stay planted
+  SolarPanelTrackingAssembly   tilt, origin on the torque axis
+    SolarPanelSurface          module faces
+    SolarPanelFrame            rails and clamps
+```
+
+Aperture **13.09 m²**, measured by projecting module faces onto the array
+plane (triangle-area sums double-count coincident faces). Example operating
+parameters (20 % efficient, 2.6 kW class) are labelled as such in the UI —
+the model arrived without a datasheet.
+
+### Scientific model
+
+Simplified teaching chain, in `src/physics/solar/solarPower.js`:
+
+```
+sun position  →  panel orientation  →  incidence angle θ
+              →  plane irradiance G  →  electrical power
+```
+
+```
+P = G · A · η · cos θ · [1 + γ(T_cell − 25)] · η_inv · soiling
+```
+
+`cos θ` is clamped at 0. Below the horizon, P = 0. Cloud cover attenuates
+the *total* resource first and then splits what remains into beam and
+diffuse, so more cloud is always less energy. Two panels are integrated off
+one set of inputs — one fixed, one tracking — so the comparison tab is
+like-for-like.
+
+The site is Astana (51.1°N) on the March equinox, so the time slider
+06:00–18:00 is one complete solar day. Tracking gain at those conditions is
+**+32.4 %** over a 35°/180° fixed array.
+
+```
+npm run verify:solar
+```
 
 ---
 
@@ -158,8 +221,9 @@ lists what *is* in the file.
 ## Model preparation
 
 ```
-npm run models:optimize   # compress the two supplied models
-npm run models:small      # generate the third
+npm run models:optimize   # compress the two supplied wind models
+npm run models:small      # generate the third turbine
+npm run models:solar      # extract the tracker from the catalogue
 ```
 
 `scripts/optimize-models.mjs` reads untouched copies from `models-source/` and
@@ -175,9 +239,36 @@ does the job:
 HAWT   28.64 MB -> 0.81 MB   (332,180 triangles, geometry unchanged)
 VAWT    0.30 MB -> 0.09 MB   (  3,308 triangles, geometry unchanged)
 small       n/a -> 0.08 MB   (  5,308 triangles, generated)
+solar  65.65 MB -> 0.35 MB   (assembly #1 of 14, hierarchy rebuilt)
 ```
 
 The Draco decoder is served from `public/draco/`, so the app needs no CDN.
+
+### One source model is not in the repository
+
+`models-source/solar_catalogue_original.glb` (the 65 MB catalogue) is
+**gitignored**. GitHub warns above 50 MB for a single file and it would take
+the repository from 32 MB to about 100 MB, for a file the app never loads —
+only `npm run models:solar` reads it, and its 0.35 MB output *is* committed.
+
+So the app runs fine from a fresh clone. Only re-extracting the tracker needs
+the source: drop the original back at that path (or point `SOLAR_SOURCE` at
+it) and re-run.
+
+```
+SOLAR_SOURCE="/path/to/solar pahels.glb" npm run models:solar
+```
+
+The two wind originals are small enough to commit and are in the repository.
+
+### Inspecting the catalogue
+
+Run the segmenter with no arguments to list what it finds — useful if you
+ever want a different mounting product than assembly #1:
+
+```
+node scripts/segment-solar.mjs
+```
 
 ---
 
@@ -188,25 +279,38 @@ scripts/
   generate-small-turbine.mjs   builds turbine 3 and exports it to .glb
   airfoil.mjs                  NACA 4-digit section generator
   optimize-models.mjs          Draco compression for the supplied models
-  verify-physics.mjs           runnable audit of the power model
+  segment-solar.mjs            extracts the tracker from the catalogue GLB
+  verify-physics.mjs           runnable audit of the wind power model
+  verify-solar.mjs             runnable audit of the solar power model
 src/
+  modes/energyModes.js         WIND | SOLAR | HYBRID registry
   physics/
     constants.js               ρ, Betz limit, slider range
-    windPower.js               the power model — pure functions
+    windPower.js               the wind power model — pure functions
     turbineSpecs.js            the three machines, measured + example values
     SimulationEngine.js        time stepping, rotor inertia, energy, history
-  state/simulationStore.js     UI state; the bridge from engine to React
+    solar/
+      sunPosition.js           altitude / azimuth from time of day
+      solarPower.js            P = G · A · η · cos θ, clamped ≥ 0
+      solarSpecs.js            measured aperture + example PV parameters
+      SolarEngine.js           mirrors SimulationEngine's contract
+  state/simulationStore.js     UI state; the bridge from engines to React
   components/scene/
     WindTurbineScene.jsx       canvas, lighting, sky, clouds, fog
     WindTurbine.jsx            generic GLB loader + rotor rewiring
+    SolarArray.jsx             GLB + two-axis tracking
+    Sun.jsx                    glowing disc + directional light
+    SunRays.jsx                animated beams sun → panel
     Landscape.jsx              terrain, mountains, installation pads
     WindParticles.jsx          instanced flow visualisation
     CameraRig.jsx              orbit control + scripted flights
-    SimulationClock.jsx        steps the engine from the render loop
+    SimulationClock.jsx        steps both engines from the render loop
   components/ui/
     TurbineSelector.jsx  WindControls.jsx  EnergyDashboard.jsx
     TechnicalParameters.jsx  PowerChart.jsx  ChartPanel.jsx
     TurbineComparison.jsx  TheoryPanel.jsx  primitives.jsx
+    SolarControls.jsx  SolarDashboard.jsx  SolarChart.jsx
+    TrackingComparison.jsx  SolarTheory.jsx  EnergyFlow.jsx
   i18n/strings.js              all interface copy
   utils/format.js              Kazakh number formatting
 ```
@@ -225,7 +329,8 @@ charts and readouts stay live; the scene stays smooth.
 - **The three machines stand at true relative scale.** The 1.8 m turbine really
   is a speck beside the 66 m one — the swept-area ratio is 1361:1. That
   contrast is the point, and the camera flies to frame whichever machine you
-  select.
+  select. Hybrid mode holds the 4 m solar array in the same frame, so a wind
+  farm dwarfing one PV tracker is visible rather than asserted.
 - **Chart colours** (`#1d4ed8`, `#0d9488`, `#b45309`) are fixed per turbine and
   never reassigned. They were checked for colour-vision separation and contrast
   against a white surface rather than chosen by eye.

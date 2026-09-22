@@ -18,6 +18,7 @@ import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 
 import { TURBINE_BY_ID, TURBINES } from '../../physics/turbineSpecs.js';
+import { SOLAR_ARRAY } from '../../physics/solar/solarSpecs.js';
 import { useSimulation } from '../../state/simulationStore.js';
 
 const FLIGHT_DURATION = 1.5; // seconds
@@ -59,12 +60,36 @@ function overviewFraming() {
   };
 }
 
+/** Framing for the solar array: close in, at a person's-eye angle. */
+function solarFraming() {
+  const [px, , pz] = SOLAR_ARRAY.scene.position;
+  const [ox, oy, oz] = SOLAR_ARRAY.scene.cameraOffset;
+  return {
+    position: new THREE.Vector3(px + ox, oy, pz + oz),
+    target: new THREE.Vector3(px, SOLAR_ARRAY.scene.labelHeight * 0.45, pz),
+  };
+}
+
+/**
+ * Framing for hybrid mode: far enough back to hold a 92 m turbine and a
+ * 4 m solar array in one frame. They are at true relative scale, so this
+ * is necessarily a wide shot -- which is itself the point being made.
+ */
+function hybridFraming() {
+  const [sx, , sz] = SOLAR_ARRAY.scene.position;
+  return {
+    position: new THREE.Vector3(sx + 78, 62, sz + 150),
+    target: new THREE.Vector3((sx - 20) / 2, 26, (sz + 6) / 2),
+  };
+}
+
 export default function CameraRig() {
   const controlsRef = useRef();
   const { camera } = useThree();
 
   const selectedId = useSimulation((s) => s.selectedId);
   const comparisonMode = useSimulation((s) => s.comparisonMode);
+  const mode = useSimulation((s) => s.mode);
 
   /** Active flight, or null when the user is in control. */
   const flight = useRef(null);
@@ -73,7 +98,11 @@ export default function CameraRig() {
     const controls = controlsRef.current;
     if (!controls) return;
 
-    const goal = comparisonMode ? overviewFraming() : framingFor(TURBINE_BY_ID[selectedId]);
+    let goal;
+    if (mode === 'solar') goal = solarFraming();
+    else if (mode === 'hybrid') goal = hybridFraming();
+    else if (comparisonMode) goal = overviewFraming();
+    else goal = framingFor(TURBINE_BY_ID[selectedId]);
 
     flight.current = {
       elapsed: 0,
@@ -82,7 +111,7 @@ export default function CameraRig() {
       toPosition: goal.position,
       toTarget: goal.target,
     };
-  }, [selectedId, comparisonMode, camera]);
+  }, [selectedId, comparisonMode, mode, camera]);
 
   // Any manual interaction cancels the flight immediately, rather than
   // fighting the user for the rest of the transition.
@@ -113,7 +142,7 @@ export default function CameraRig() {
       rotateSpeed={0.55}
       zoomSpeed={0.8}
       panSpeed={0.7}
-      minDistance={4}
+      minDistance={2.5}
       maxDistance={680}
       // Stop the camera dropping below the horizon and revealing the
       // underside of the terrain.

@@ -1,0 +1,743 @@
+/**
+ * Segments the supplied solar model into its individual assemblies.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS EXISTS
+ * ---------------------------------------------------------------------------
+ * `solar pahels.glb` is a SketchUp -> Collada -> Sketchfab export of a
+ * manufacturer's catalogue: roughly eighteen different mounting products
+ * laid out on one site, 28.8 m x 16.1 m, 1.37M triangles.
+ *
+ * It has no usable hierarchy. All 81 meshes are unnamed siblings
+ * (`Material2` / `Material3`), and -- the part that matters -- the exporter
+ * batched geometry BY MATERIAL rather than by object. A single mesh
+ * therefore holds triangles belonging to several different products: the
+ * largest one (57,339 triangles of `0107_MidnightBlue`) has islands at
+ * three separate sites on the plot.
+ *
+ * So the Base / TrackingAssembly / Surface split the simulation needs cannot
+ * be recovered by re-parenting nodes, the way the HAWT's rotor could be.
+ * It has to be rebuilt from the triangles up, which is what this does:
+ *
+ *   1. bake every triangle into world space (node transforms applied)
+ *   2. cluster triangles into assemblies by spatial locality in XZ
+ *   3. within an assembly, split panel surfaces from support structure
+ *      by material, and find the tilt axis from the panel geometry
+ *
+ * Run with no arguments to list the assemblies found:
+ *     node scripts/segment-solar.mjs
+ *
+ * Run with an index to extract one to public/models/solar.glb:
+ *     node scripts/segment-solar.mjs --extract 1
+ */
+import { NodeIO } from '@gltf-transform/core';
+import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
+
+const SOURCE = process.env.SOLAR_SOURCE ?? 'models-source/solar_catalogue_original.glb';
+
+/** Inches to metres. The model is authored in inches (SketchUp US template). */
+export const INCH = 0.0254;
+
+/**
+ * Materials that are photovoltaic surface rather than structure.
+ * `0107_MidnightBlue` and `0109_DarkSlateBlue` are SketchUp colour names for
+ * the dark cell laminate; `2420x1200` is a module size in millimetres.
+ */
+const PANEL_MATERIALS = /MidnightBlue|DarkSlateBlue|2420x1200|Navy|DodgerBlue/i;
+
+/**
+ * Scale-figure people and interior props that came along with the SketchUp
+ * scene. They are not part of any solar assembly.
+ */
+const PROP_MATERIALS = /^(Heather|Lily)_|Formica|Polished_Concrete|ForestGreen/i;
+
+/** Grid cell for spatial clustering, in inches. 30in = 0.76 m. */
+const CELL = 30;
+
+/**
+ * Triangles wider than this in the ground plane are excluded from
+ * clustering, in inches. 120in = 3 m.
+ *
+ * SketchUp exports site planes, shadow catchers and stray construction
+ * geometry that stretch across the whole plot. There are only a couple of
+ * genuinely plot-spanning triangles, but roughly 1,700 span 2.5-10 m, and
+ * every one of them bridges two products into a single cluster -- which is
+ * why an unfiltered pass returns one assembly instead of eighteen. No real
+ * bracket, rail or module face is 3 m across in a single triangle, so this
+ * removes the bridges without touching any product geometry.
+ */
+const MAX_SPAN = 120;
+
+/**
+ * Half-thickness of the slab, in inches, that counts as "part of the module
+ * sandwich" and therefore rotates with it. 14in = 0.36 m -- enough to catch
+ * mounting rails, clamps and a torque tube directly under the laminate,
+ * while leaving posts and braces behind.
+ */
+const FRAME_SLAB = 14;
+
+/** SketchUp exports its display edges as near-degenerate triangles. */
+const EDGE_MATERIAL = /^edge_color/i;
+
+// ---------------------------------------------------------------------------
+// matrix helpers
+// ---------------------------------------------------------------------------
+const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+
+function localMatrix(node) {
+  const t = node.getTranslation();
+  const q = node.getRotation();
+  const s = node.getScale();
+  const [x, y, z, w] = q;
+  const x2 = x + x, y2 = y + y, z2 = z + z;
+  const xx = x * x2, xy = x * y2, xz = x * z2;
+  const yy = y * y2, yz = y * z2, zz = z * z2;
+  const wx = w * x2, wy = w * y2, wz = w * z2;
+  return [
+    (1 - (yy + zz)) * s[0], (xy + wz) * s[0], (xz - wy) * s[0], 0,
+    (xy - wz) * s[1], (1 - (xx + zz)) * s[1], (yz + wx) * s[1], 0,
+    (xz + wy) * s[2], (yz - wx) * s[2], (1 - (xx + yy)) * s[2], 0,
+    t[0], t[1], t[2], 1,
+  ];
+}
+
+function multiply(a, b) {
+  const out = new Array(16);
+  for (let c = 0; c < 4; c++) {
+    for (let r = 0; r < 4; r++) {
+      let sum = 0;
+      for (let k = 0; k < 4; k++) sum += a[k * 4 + r] * b[c * 4 + k];
+      out[c * 4 + r] = sum;
+    }
+  }
+  return out;
+}
+
+function transformPoint(m, p) {
+  return [
+    m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
+    m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
+    m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14],
+  ];
+}
+
+/** Normal matrix for a rigid-ish transform: good enough without shear. */
+function transformDirection(m, v) {
+  const out = [
+    m[0] * v[0] + m[4] * v[1] + m[8] * v[2],
+    m[1] * v[0] + m[5] * v[1] + m[9] * v[2],
+    m[2] * v[0] + m[6] * v[1] + m[10] * v[2],
+  ];
+  const len = Math.hypot(...out) || 1;
+  return out.map((c) => c / len);
+}
+
+// ---------------------------------------------------------------------------
+// load and bake every triangle into world space
+// ---------------------------------------------------------------------------
+
+/**
+ * @returns {Promise<{triangles: Array, document: import('@gltf-transform/core').Document}>}
+ *   each triangle: { p: [[x,y,z] x3], n: [[x,y,z] x3], uv, material, isPanel, isProp }
+ */
+export async function loadTriangles(source = SOURCE) {
+  const io = new NodeIO().registerExtensions(ALL_EXTENSIONS);
+  const document = await io.read(source);
+
+  const triangles = [];
+
+  const visit = (node, parentMatrix) => {
+    const matrix = multiply(parentMatrix, localMatrix(node));
+    const mesh = node.getMesh();
+
+    if (mesh) {
+      for (const prim of mesh.listPrimitives()) {
+        const position = prim.getAttribute('POSITION');
+        const normal = prim.getAttribute('NORMAL');
+        const uv = prim.getAttribute('TEXCOORD_0');
+        const indices = prim.getIndices();
+        const count = indices ? indices.getCount() : position.getCount();
+        const material = prim.getMaterial()?.getName() ?? '';
+        const isPanel = PANEL_MATERIALS.test(material);
+        const isProp = PROP_MATERIALS.test(material);
+
+        for (let i = 0; i < count; i += 3) {
+          const p = [];
+          const n = [];
+          const t = [];
+          for (let k = 0; k < 3; k++) {
+            const vi = indices ? indices.getScalar(i + k) : i + k;
+            p.push(transformPoint(matrix, position.getElement(vi, [])));
+            n.push(normal ? transformDirection(matrix, normal.getElement(vi, [])) : [0, 1, 0]);
+            t.push(uv ? uv.getElement(vi, []) : [0, 0]);
+          }
+          triangles.push({ p, n, uv: t, material, isPanel, isProp });
+        }
+      }
+    }
+
+    for (const child of node.listChildren()) visit(child, matrix);
+  };
+
+  for (const scene of document.getRoot().listScenes()) {
+    for (const node of scene.listChildren()) visit(node, IDENTITY);
+  }
+
+  return { triangles, document };
+}
+
+// ---------------------------------------------------------------------------
+// cluster triangles into assemblies
+// ---------------------------------------------------------------------------
+
+/**
+ * Groups triangles into spatially separate assemblies.
+ *
+ * Works on an occupancy grid in the ground plane: mark the cell each
+ * triangle's centroid falls in, connect 8-adjacent occupied cells, and every
+ * connected region of cells is one product on the plot. Clustering in XZ
+ * rather than 3D is deliberate -- a panel sits directly above its own
+ * supports, so they must land in the same assembly.
+ */
+export function clusterAssemblies(triangles, { cell = CELL, includeProps = false } = {}) {
+  const spanXZ = (t) => {
+    const xs = [t.p[0][0], t.p[1][0], t.p[2][0]];
+    const zs = [t.p[0][2], t.p[1][2], t.p[2][2]];
+    return Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs));
+  };
+
+  const usable = triangles.filter((t) => (
+    (includeProps || !t.isProp)
+    && !EDGE_MATERIAL.test(t.material)
+    && spanXZ(t) <= MAX_SPAN
+  ));
+
+  const cellOf = (t) => {
+    const cx = (t.p[0][0] + t.p[1][0] + t.p[2][0]) / 3;
+    const cz = (t.p[0][2] + t.p[1][2] + t.p[2][2]) / 3;
+    return `${Math.floor(cx / cell)},${Math.floor(cz / cell)}`;
+  };
+
+  const occupied = new Map();
+  usable.forEach((t, i) => {
+    const key = cellOf(t);
+    let bucket = occupied.get(key);
+    if (!bucket) occupied.set(key, bucket = []);
+    bucket.push(i);
+  });
+
+  const keys = [...occupied.keys()];
+  const indexOf = new Map(keys.map((k, i) => [k, i]));
+  const parent = keys.map((_, i) => i);
+  const find = (a) => (parent[a] === a ? a : (parent[a] = find(parent[a])));
+  const union = (a, b) => { a = find(a); b = find(b); if (a !== b) parent[b] = a; };
+
+  for (const key of keys) {
+    const [x, z] = key.split(',').map(Number);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        const neighbour = `${x + dx},${z + dz}`;
+        if (indexOf.has(neighbour)) union(indexOf.get(key), indexOf.get(neighbour));
+      }
+    }
+  }
+
+  const byRoot = new Map();
+  for (const key of keys) {
+    const root = find(indexOf.get(key));
+    let group = byRoot.get(root);
+    if (!group) byRoot.set(root, group = []);
+    group.push(...occupied.get(key));
+  }
+
+  return [...byRoot.values()]
+    .map((indices) => describeAssembly(indices.map((i) => usable[i])))
+    .filter((a) => a.triangles.length > 40)
+    .sort((a, b) => b.panelArea - a.panelArea);
+}
+
+/** Measures one assembly: bounds, panel area, tilt, and how tracker-like it is. */
+function describeAssembly(triangles) {
+  const min = [Infinity, Infinity, Infinity];
+  const max = [-Infinity, -Infinity, -Infinity];
+  for (const t of triangles) {
+    for (const p of t.p) {
+      for (let k = 0; k < 3; k++) {
+        min[k] = Math.min(min[k], p[k]);
+        max[k] = Math.max(max[k], p[k]);
+      }
+    }
+  }
+
+  const panels = triangles.filter((t) => t.isPanel);
+
+  // Panel area and mean normal, area-weighted so big faces dominate the
+  // estimate of which way the array is pointing.
+  let panelArea = 0;
+  const meanNormal = [0, 0, 0];
+  const panelMin = [Infinity, Infinity, Infinity];
+  const panelMax = [-Infinity, -Infinity, -Infinity];
+
+  for (const t of panels) {
+    const [a, b, c] = t.p;
+    const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    const cross = [
+      ab[1] * ac[2] - ab[2] * ac[1],
+      ab[2] * ac[0] - ab[0] * ac[2],
+      ab[0] * ac[1] - ab[1] * ac[0],
+    ];
+    const area = Math.hypot(...cross) / 2;
+    // Only count upward-facing area: a panel has a back as well as a front,
+    // and the back must not cancel the front out.
+    if (cross[1] < 0) continue;
+    panelArea += area;
+    for (let k = 0; k < 3; k++) meanNormal[k] += cross[k] / 2;
+    for (const p of t.p) {
+      for (let k = 0; k < 3; k++) {
+        panelMin[k] = Math.min(panelMin[k], p[k]);
+        panelMax[k] = Math.max(panelMax[k], p[k]);
+      }
+    }
+  }
+
+  const nLen = Math.hypot(...meanNormal) || 1;
+  const normal = meanNormal.map((c) => c / nLen);
+  const tiltDeg = Math.acos(Math.min(Math.max(normal[1], -1), 1)) * (180 / Math.PI);
+
+  const size = max.map((v, i) => v - min[i]);
+  const footprint = size[0] * size[2];
+
+  // A pole-mounted tracker is tall and narrow: its panel area is large
+  // relative to the ground it stands on, and the panel sits well above it.
+  const panelHeight = Number.isFinite(panelMin[1]) ? (panelMin[1] + panelMax[1]) / 2 : 0;
+  const compactness = footprint > 0 ? panelArea / footprint : 0;
+  const elevation = size[1] > 0 ? (panelHeight - min[1]) / size[1] : 0;
+
+  return {
+    triangles,
+    min,
+    max,
+    size,
+    panelArea,
+    panelCount: panels.length,
+    normal,
+    tiltDeg,
+    panelMin,
+    panelMax,
+    compactness,
+    elevation,
+    materials: [...new Set(triangles.map((t) => t.material))].filter((m) => !m.startsWith('edge_')),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// report
+// ---------------------------------------------------------------------------
+
+const m = (inches) => (inches * INCH);
+
+async function report() {
+  console.log(`reading ${SOURCE} …`);
+  const { triangles } = await loadTriangles();
+  const props = triangles.filter((t) => t.isProp).length;
+  console.log(`${triangles.length.toLocaleString()} triangles (${props.toLocaleString()} are people/furniture, excluded)\n`);
+
+  const assemblies = clusterAssemblies(triangles);
+  console.log(`${assemblies.length} assemblies found\n`);
+  console.log(
+    ' #  tris      panel m²  tilt°  size (m)            pole?  centre XZ (in)',
+  );
+  assemblies.forEach((a, i) => {
+    const pole = a.compactness > 0.55 && a.elevation > 0.35 ? ' yes ' : '  -  ';
+    console.log(
+      String(i).padStart(2),
+      String(a.triangles.length).padStart(8),
+      (m(1) * m(1) * a.panelArea).toFixed(1).padStart(9),
+      a.tiltDeg.toFixed(0).padStart(6),
+      ` ${m(a.size[0]).toFixed(1)} x ${m(a.size[2]).toFixed(1)} x ${m(a.size[1]).toFixed(1)}`.padEnd(21),
+      pole,
+      `(${((a.min[0] + a.max[0]) / 2).toFixed(0)}, ${((a.min[2] + a.max[2]) / 2).toFixed(0)})`,
+    );
+  });
+}
+
+/**
+ * Measures the array's true collecting aperture, in square metres.
+ *
+ * Summing triangle areas does not work on this model. Each module is a
+ * solid, so it has a back face as well as a front; the modules are built
+ * in two coincident layers 6 and 9 inches off the array's mid-plane; and
+ * there is a large backing panel behind them. Adding up face areas
+ * therefore counts the same square metre three or four times, which would
+ * inflate every power reading in the simulation by the same factor.
+ *
+ * So the aperture is measured as COVERAGE instead: project every module
+ * triangle onto the array plane, mark the cells it lands in on a fine
+ * grid, and count the marked cells once each. Overlapping layers land in
+ * the same cells and are counted once, which is the physically meaningful
+ * answer -- two stacked laminates collect the light of one.
+ */
+export function measureAperture(assembly, { cellInches = 2 } = {}) {
+  const n = assembly.normal;
+
+  // Orthonormal basis in the array plane.
+  const helper = Math.abs(n[1]) > 0.9 ? [1, 0, 0] : [0, 1, 0];
+  const u = normalise(cross(helper, n));
+  const v = normalise(cross(n, u));
+
+  const origin = [0, 1, 2].map((k) => (assembly.panelMin[k] + assembly.panelMax[k]) / 2);
+  const covered = new Set();
+
+  const mark = (p) => {
+    const d = [p[0] - origin[0], p[1] - origin[1], p[2] - origin[2]];
+    const a = d[0] * u[0] + d[1] * u[1] + d[2] * u[2];
+    const b = d[0] * v[0] + d[1] * v[1] + d[2] * v[2];
+    covered.add(`${Math.floor(a / cellInches)},${Math.floor(b / cellInches)}`);
+  };
+
+  for (const t of assembly.triangles) {
+    if (!t.isPanel || EDGE_MATERIAL.test(t.material)) continue;
+    // Only faces lying in the array plane: a module's edge strips point
+    // sideways and would smear coverage beyond the real outline.
+    const fn = t.n[0];
+    if (Math.abs(fn[0] * n[0] + fn[1] * n[1] + fn[2] * n[2]) < Math.cos((30 * Math.PI) / 180)) continue;
+
+    for (const p of t.p) mark(p);
+    mark([0, 1, 2].map((k) => (t.p[0][k] + t.p[1][k] + t.p[2][k]) / 3));
+  }
+
+  return covered.size * (cellInches * INCH) ** 2;
+}
+
+function cross(a, b) {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ];
+}
+
+function normalise(v) {
+  const len = Math.hypot(...v) || 1;
+  return v.map((c) => c / len);
+}
+
+// ---------------------------------------------------------------------------
+// extraction
+// ---------------------------------------------------------------------------
+
+/**
+ * Rebuilds one assembly as a clean glTF with the hierarchy the simulation
+ * needs:
+ *
+ *   SolarPanelRoot
+ *     SolarPanelBase                fixed: mast, footing, anything below the
+ *                                   tilt axis
+ *     SolarPanelTrackingAssembly    rotates; its ORIGIN IS ON THE TILT AXIS,
+ *                                   so it swings rather than orbiting
+ *       SolarPanelSurface           the photovoltaic faces
+ *       SolarPanelFrame             rails and brackets that move with them
+ *
+ * Two corrections are baked in so the runtime can treat its angles as
+ * absolute rather than relative to however the model happened to be posed:
+ *
+ *   - the assembly is recentred so its base sits at the origin with Y = 0
+ *     on the ground;
+ *   - the authored tilt is removed, so the tracking assembly at rotation
+ *     zero lies flat and `tilt = 35` really means 35 degrees from horizontal.
+ *
+ * Geometry is converted from inches to metres but otherwise untouched: no
+ * decimation, no re-topology, no recomputed normals.
+ */
+export async function extractAssembly(assembly, outputPath, { flatten = true } = {}) {
+  const { Document } = await import('@gltf-transform/core');
+
+  // Tilt axis: horizontal, perpendicular to the direction the panel faces.
+  const n = assembly.normal;
+  const facing = Math.hypot(n[0], n[2]) > 1e-6 ? [n[0], 0, n[2]] : [0, 0, 1];
+  const fLen = Math.hypot(facing[0], facing[2]) || 1;
+  const face = [facing[0] / fLen, 0, facing[2] / fLen];
+  const axis = [-face[2], 0, face[0]];
+  const authoredTilt = flatten ? (assembly.tiltDeg * Math.PI) / 180 : 0;
+
+  // Pivot: the centre of the module plane, in all three axes.
+  //
+  // Putting it at the panel's lower edge instead -- which is where a torque
+  // tube physically sits on some single-axis racks -- makes the array swing
+  // upward and away from its supports as it tilts, leaving it visibly
+  // floating at 60 degrees. Rotating about the centre keeps the modules over
+  // their posts through the full range, which is what a real two-axis
+  // tracker does and what reads correctly on screen.
+  const pivot = [
+    (assembly.panelMin[0] + assembly.panelMax[0]) / 2,
+    Number.isFinite(assembly.panelMin[1])
+      ? (assembly.panelMin[1] + assembly.panelMax[1]) / 2
+      : assembly.min[1],
+    (assembly.panelMin[2] + assembly.panelMax[2]) / 2,
+  ];
+
+  const groundY = assembly.min[1];
+  const baseOrigin = [(assembly.min[0] + assembly.max[0]) / 2, groundY, (assembly.min[2] + assembly.max[2]) / 2];
+
+  /**
+   * Rodrigues rotation of v about `axis` by +authoredTilt.
+   *
+   * The sign is what flattens rather than doubles the tilt. `axis` is
+   * cross(panelNormal, +Y) normalised, and rotating the normal about that
+   * axis by +acos(n·Y) is exactly the rotation that carries the normal onto
+   * +Y. Negating it tilts the panel the other way instead, which is how an
+   * earlier pass turned a 47-degree array into a near-vertical one.
+   */
+  const unTilt = (v) => {
+    if (!authoredTilt) return v;
+    const c = Math.cos(authoredTilt);
+    const s = Math.sin(authoredTilt);
+    const k = axis;
+    const dot = k[0] * v[0] + k[1] * v[1] + k[2] * v[2];
+    const cross = [
+      k[1] * v[2] - k[2] * v[1],
+      k[2] * v[0] - k[0] * v[2],
+      k[0] * v[1] - k[1] * v[0],
+    ];
+    return [
+      v[0] * c + cross[0] * s + k[0] * dot * (1 - c),
+      v[1] * c + cross[1] * s + k[1] * dot * (1 - c),
+      v[2] * c + cross[2] * s + k[2] * dot * (1 - c),
+    ];
+  };
+
+  /**
+   * Sorts the assembly's triangles into the three groups.
+   *
+   * Material alone is not enough to tell a module from its mounting: this
+   * catalogue paints legs and rails with the same SketchUp colours as the
+   * laminate, so a material test puts the legs in with the cells. Geometry
+   * decides it instead -- a module face is a triangle that both points the
+   * way the array points and lies in the thin slab the modules occupy.
+   * Everything else is structure, split at the tilt axis into the part that
+   * swings (frame) and the part that stays planted (base).
+   */
+  /**
+   * Half-thickness of the slab counted as module surface, in inches.
+   *
+   * 12in rather than 6: this array's modules are built in two layers, one
+   * about 6 inches off the mid-plane and one about 9, and a tighter slab
+   * catches only the nearer row. The far row then falls through to the
+   * frame group and renders in aluminium -- visible on screen as an array
+   * whose top half is grey and bottom half blue. Still under FRAME_SLAB,
+   * so rails and clamps are unaffected.
+   */
+  const slabHalfThickness = 12;
+  const normalTolerance = Math.cos((22 * Math.PI) / 180);
+
+  const groups = { SolarPanelBase: [], SolarPanelSurface: [], SolarPanelFrame: [] };
+  for (const t of assembly.triangles) {
+    if (EDGE_MATERIAL.test(t.material) || t.isProp) continue;
+
+    const centroid = [0, 1, 2].map((k) => (t.p[0][k] + t.p[1][k] + t.p[2][k]) / 3);
+    const faceNormal = t.n[0];
+
+    // SIGNED, not absolute.
+    //
+    // Each module is modelled as a solid, so its underside is a second face
+    // in the same plane pointing the opposite way. Matching on |dot| keeps
+    // both: they end up coincident, z-fight, and the downward-facing half
+    // wins often enough that the array renders black in full sun. Keeping
+    // only the faces that look the way the array looks leaves one clean
+    // collecting surface -- and halves its triangle count.
+    const alignment = faceNormal[0] * n[0] + faceNormal[1] * n[1] + faceNormal[2] * n[2];
+
+    // Signed distance from the plane through the panel centre.
+    const panelCentre = [0, 1, 2].map((k) => (assembly.panelMin[k] + assembly.panelMax[k]) / 2);
+    const offset = [0, 1, 2].reduce((sum, k) => sum + (centroid[k] - panelCentre[k]) * n[k], 0);
+
+    const isSurface = t.isPanel
+      && alignment >= normalTolerance
+      && Math.abs(offset) <= slabHalfThickness;
+
+    // What moves is decided by proximity to the module plane, not by height.
+    // Rails, clamps and the torque tube sit within the panel sandwich and
+    // must swing with it; posts, braces and footings reach down to the
+    // ground and must stay planted, or the array lifts off its supports as
+    // soon as it tilts.
+    if (isSurface) {
+      groups.SolarPanelSurface.push(t);
+    } else if (Math.abs(offset) <= FRAME_SLAB) {
+      groups.SolarPanelFrame.push(t);
+    } else {
+      groups.SolarPanelBase.push(t);
+    }
+  }
+
+  const document = new Document();
+  const buffer = document.createBuffer();
+  const scene = document.createScene('SolarPanel');
+  const root = document.createNode('SolarPanelRoot');
+  scene.addChild(root);
+
+  /**
+   * Materials are assigned by GROUP, not by the source material name.
+   *
+   * The SketchUp catalogue paints rails, posts and laminate with the same
+   * handful of colours, so keying off the original material made the whole
+   * assembly one shade -- it rendered as a single black slab with no
+   * readable structure. Grouping instead gives each part the surface it
+   * physically has: dark blue glass for the modules, mill-finish aluminium
+   * for the rails, galvanised steel for the posts.
+   */
+  const GROUP_MATERIALS = {
+    SolarPanelSurface: {
+      name: 'PV_Laminate',
+      // Deep blue-black, but not pure black: cells are visibly blue, and a
+      // little specular is what makes a panel read as glass rather than felt.
+      baseColor: [0.105, 0.135, 0.245, 1],
+      metallic: 0.12,
+      roughness: 0.28,
+    },
+    SolarPanelFrame: {
+      name: 'Aluminium_Rail',
+      baseColor: [0.70, 0.72, 0.745, 1],
+      metallic: 0.9,
+      roughness: 0.34,
+    },
+    SolarPanelBase: {
+      name: 'Galvanised_Post',
+      baseColor: [0.55, 0.575, 0.60, 1],
+      metallic: 0.82,
+      roughness: 0.46,
+    },
+  };
+
+  const materials = new Map();
+  const materialFor = (group) => {
+    let mat = materials.get(group);
+    if (!mat) {
+      const def = GROUP_MATERIALS[group] ?? GROUP_MATERIALS.SolarPanelFrame;
+      mat = document.createMaterial(def.name)
+        .setBaseColorFactor(def.baseColor)
+        .setMetallicFactor(def.metallic)
+        .setRoughnessFactor(def.roughness);
+      materials.set(group, mat);
+    }
+    return mat;
+  };
+
+  const buildNode = (name, triangles, { relativeTo, applyUnTilt }) => {
+    const node = document.createNode(name);
+    if (!triangles.length) return node;
+
+    const byMaterial = new Map();
+    for (const t of triangles) {
+      let list = byMaterial.get(t.material);
+      if (!list) byMaterial.set(t.material, list = []);
+      list.push(t);
+    }
+
+    const mesh = document.createMesh(name);
+    for (const [materialName, list] of byMaterial) {
+      const positions = new Float32Array(list.length * 9);
+      const normals = new Float32Array(list.length * 9);
+      const uvs = new Float32Array(list.length * 6);
+
+      list.forEach((t, ti) => {
+        for (let k = 0; k < 3; k++) {
+          let p = [
+            t.p[k][0] - relativeTo[0],
+            t.p[k][1] - relativeTo[1],
+            t.p[k][2] - relativeTo[2],
+          ];
+          let nv = t.n[k];
+          if (applyUnTilt) { p = unTilt(p); nv = unTilt(nv); }
+          const o = ti * 9 + k * 3;
+          positions[o] = p[0] * INCH;
+          positions[o + 1] = p[1] * INCH;
+          positions[o + 2] = p[2] * INCH;
+          normals[o] = nv[0];
+          normals[o + 1] = nv[1];
+          normals[o + 2] = nv[2];
+          uvs[ti * 6 + k * 2] = t.uv[k][0];
+          uvs[ti * 6 + k * 2 + 1] = t.uv[k][1];
+        }
+      });
+
+      mesh.addPrimitive(document.createPrimitive()
+        .setAttribute('POSITION', document.createAccessor().setType('VEC3').setArray(positions).setBuffer(buffer))
+        .setAttribute('NORMAL', document.createAccessor().setType('VEC3').setArray(normals).setBuffer(buffer))
+        .setAttribute('TEXCOORD_0', document.createAccessor().setType('VEC2').setArray(uvs).setBuffer(buffer))
+        .setMaterial(materialFor(name)));
+    }
+    node.setMesh(mesh);
+    return node;
+  };
+
+  root.addChild(buildNode('SolarPanelBase', groups.SolarPanelBase, {
+    relativeTo: baseOrigin, applyUnTilt: false,
+  }));
+
+  const tracker = document.createNode('SolarPanelTrackingAssembly').setTranslation([
+    (pivot[0] - baseOrigin[0]) * INCH,
+    (pivot[1] - baseOrigin[1]) * INCH,
+    (pivot[2] - baseOrigin[2]) * INCH,
+  ]);
+  root.addChild(tracker);
+  tracker.addChild(buildNode('SolarPanelSurface', groups.SolarPanelSurface, {
+    relativeTo: pivot, applyUnTilt: true,
+  }));
+  tracker.addChild(buildNode('SolarPanelFrame', groups.SolarPanelFrame, {
+    relativeTo: pivot, applyUnTilt: true,
+  }));
+
+  // Draco, same as the wind models: lossless to the eye, and it takes this
+  // assembly from ~11.8 MB to something a browser can fetch comfortably.
+  // No decimation -- the geometry stays exactly as authored.
+  const { draco } = await import('@gltf-transform/functions');
+  const { default: draco3d } = await import('draco3dgltf');
+  const io = new NodeIO()
+    .registerExtensions(ALL_EXTENSIONS)
+    .registerDependencies({
+      'draco3d.decoder': await draco3d.createDecoderModule(),
+      'draco3d.encoder': await draco3d.createEncoderModule(),
+    });
+
+  await document.transform(
+    draco({ method: 'edgebreaker', quantizePositionBits: 14, quantizeNormalBits: 10 }),
+  );
+  await io.write(outputPath, document);
+
+  const apertureM2 = measureAperture(assembly);
+
+  // Cross-check against the bounding box: width x slope length, the figure
+  // you would get measuring the array by hand. The true aperture must come
+  // in at or just under it -- modules do not cover their rack edge to edge.
+  // A wild disagreement means the classification has gone wrong, and a
+  // silently wrong aperture would corrupt every power figure downstream.
+  const slopeLength = (assembly.size[2] * INCH) / Math.max(Math.cos(authoredTilt), 0.2);
+  const boxEstimate = assembly.size[0] * INCH * slopeLength;
+
+  return {
+    path: outputPath,
+    apertureM2: +apertureM2.toFixed(2),
+    boxEstimateM2: +boxEstimate.toFixed(2),
+    sizeM: assembly.size.map((v) => +(v * INCH).toFixed(2)),
+    authoredTiltDeg: +assembly.tiltDeg.toFixed(1),
+    triangles: Object.fromEntries(Object.entries(groups).map(([k, v]) => [k, v.length])),
+  };
+}
+
+const invokedDirectly = process.argv[1] && process.argv[1].endsWith('segment-solar.mjs');
+
+if (invokedDirectly && process.argv.includes('--extract')) {
+  const index = Number(process.argv[process.argv.indexOf('--extract') + 1]);
+  const outFlag = process.argv.indexOf('--out');
+  const out = outFlag >= 0 ? process.argv[outFlag + 1] : 'public/models/solar.glb';
+  const { triangles } = await loadTriangles();
+  const assemblies = clusterAssemblies(triangles);
+  if (!assemblies[index]) {
+    console.error(`no assembly ${index}; there are ${assemblies.length}`);
+    process.exit(1);
+  }
+  console.log(JSON.stringify(await extractAssembly(assemblies[index], out)));
+} else if (invokedDirectly) {
+  await report();
+}

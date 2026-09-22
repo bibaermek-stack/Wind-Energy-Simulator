@@ -212,6 +212,9 @@ export default function TrackingComparison() {
         <Notice>{T.specificYieldNotice}</Notice>
       </div>
       <div style={{ marginTop: 10 }}>
+        <Notice>{T.trackerMountNotice}</Notice>
+      </div>
+      <div style={{ marginTop: 10 }}>
         <Notice signal>{T.solarModelNotice}</Notice>
       </div>
     </Section>

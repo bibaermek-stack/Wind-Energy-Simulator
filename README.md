@@ -126,8 +126,8 @@ The three differ in exactly one thing: **how their orientation is decided.**
 
 | | Panel | Control | Mount | Aperture |
 |---|---|---|---|---|
-| 1 | **AUTO** | two-axis tracker, follows the sun; switchable off | braced rack | 13.09 m² |
-| 2 | **MANUAL** | your tilt/azimuth sliders | pedestal array | 15.43 m² |
+| 1 | **AUTO** | two-axis tracker, follows the sun; switchable off | pole, concrete footing | 6.54 m² |
+| 2 | **MANUAL** | your tilt/azimuth sliders | wide array on legs | 13.09 m² |
 | 3 | **FIXED** | bolted at 35° / 180°, never moves | low ground row | 9.61 m² |
 
 All three are integrated every frame from one sun, one sky, one set of
@@ -136,13 +136,29 @@ TRACKING off **freezes** Panel 1 where it stands and lets the sun move on —
 you watch the alignment angle open up, which is what a stalled tracker
 costs.
 
+### Where the geometry comes from
+
+The modules, laminate and rails of all three panels are the supplied
+catalogue geometry, cut out by `scripts/segment-solar.mjs` and otherwise
+untouched — no replacement models, no billboards.
+
+One thing is generated: **the auto tracker's column.** The catalogue has no
+pole-mounted tracker in it. Every one of its nine assemblies is a ground
+frame, so there was nothing to cut a pedestal from. The script therefore
+builds the column, footing and pivot head, and sets the catalogue's own
+array on top of them. Every part of the column is a surface of revolution
+about its own axis, so that turning the model in azimuth leaves the footing
+looking exactly as it did — the base reads as planted while the array
+swings above it.
+
 ### Why the dashboard shows W/m²
 
 The three mounts are three different products from the supplied catalogue,
-so they have genuinely different collecting areas. That makes raw watts an
-unfair comparison: at solar noon the manual panel reads **2.3 kW against
-the tracker's 2.0 kW** purely because it is 18 % larger, while per square
-metre the tracker is ahead (154 vs 150 W/m²).
+so they have genuinely different collecting areas — 6.54, 13.09 and
+9.61 m². That makes raw watts an unfair comparison: at solar noon the
+manual panel reads **2.0 kW against the tracker's 1.0 kW** purely because
+it is twice the size, while per square metre the tracker is ahead
+(154 vs 150 W/m²).
 
 So every readout carries both figures, and the comparison table marks a
 "best" cell only on rows whose number is comparable — angles, cos θ,
@@ -159,10 +175,22 @@ be re-parented the way the HAWT rotor was.
 ```
 SolarPanelRoot                 azimuth, rotates about Y
   SolarPanelBase               posts + footings, stay planted
+    SolarPanelFooting          AUTO only: the generated concrete pad
   SolarPanelTrackingAssembly   tilt, origin on the torque axis
+    SolarPanelYoke             AUTO only: the generated pivot head
     SolarPanelSurface          module faces
     SolarPanelFrame            rails and clamps
 ```
+
+On AUTO, `--mast` replaces the catalogue's ground frame with a generated
+column and keeps everything else. Two details matter there. The pivot is
+lifted to half the array's slope length plus a clearance, because the array
+rotates about its own centre and would otherwise scythe into the ground at
+the slider's 90°. And the frame group is re-filtered on all three vertices
+rather than on the triangle's midpoint: the catalogue draws a metre-long
+brace as one long thin triangle whose midpoint lands inside the frame slab,
+so the centroid test let the old pedestal's bracing ride along with the
+array as thin legs reaching into empty air.
 
 Aperture is measured by projecting module faces onto the array plane and
 counting covered cells — a sum of triangle areas double-counts the
@@ -258,7 +286,8 @@ lists what *is* in the file.
 ```
 npm run models:optimize   # compress the two supplied wind models
 npm run models:small      # generate the third turbine
-npm run models:solar      # extract the three panels from the catalogue
+npm run models:solar      # cut the three panels out of the catalogue
+                          # (AUTO also gets its generated column)
 ```
 
 `scripts/optimize-models.mjs` reads untouched copies from `models-source/` and
@@ -316,7 +345,7 @@ scripts/
   generate-small-turbine.mjs   builds turbine 3 and exports it to .glb
   airfoil.mjs                  NACA 4-digit section generator
   optimize-models.mjs          Draco compression for the supplied models
-  segment-solar.mjs            extracts the tracker from the catalogue GLB
+  segment-solar.mjs            cuts the three panels out of the catalogue GLB
   verify-physics.mjs           runnable audit of the wind power model
   verify-solar.mjs             runnable audit of the solar power model
 src/

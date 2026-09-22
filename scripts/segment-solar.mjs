@@ -424,6 +424,214 @@ function normalise(v) {
 }
 
 // ---------------------------------------------------------------------------
+// generated pole mount
+// ---------------------------------------------------------------------------
+
+/**
+ * A pedestal for the automatic tracker.
+ *
+ * The supplied catalogue has no pole-mounted tracker in it. Every one of its
+ * nine assemblies is a ground frame: an array sitting on legs, braces or a
+ * low rack. Reference photograph 1 shows the other thing entirely -- a
+ * single tapered steel column on a round concrete footing, with the array
+ * carried high on a pivot head. There is nothing in the catalogue to cut
+ * that from.
+ *
+ * So the MOUNT is generated here and nothing else. The modules, their
+ * laminate, their rails and their proportions are still the supplied
+ * geometry, lifted off whatever frame the catalogue gave them and set on
+ * this column instead. Nothing about the panel itself is redrawn.
+ *
+ * Everything the generator emits is a surface of revolution about the
+ * column's own axis, or is symmetric about it. That is not decoration: the
+ * runtime turns the whole model in azimuth (see SolarArray.jsx), so any
+ * feature that is not axially symmetric would visibly spin the footing as
+ * the tracker follows the sun -- exactly the "do not rotate the ground
+ * mount" failure. A round pad and a round column look identical at every
+ * azimuth, so the base reads as planted while the array swings above it.
+ *
+ * Dimensions in metres, converted to the inch space the rest of the
+ * pipeline works in so generated and catalogue triangles can share one
+ * mesh builder.
+ */
+const MAST = {
+  padRadius: 0.64,
+  padSkirt: 0.17,        // vertical part of the footing
+  padHeight: 0.25,       // total, including the chamfer on top
+  padTopRadius: 0.52,
+  flangeRadius: 0.31,
+  flangeHeight: 0.07,
+  columnBottomRadius: 0.165,
+  columnTopRadius: 0.125,
+  collarRadius: 0.265,   // azimuth bearing housing
+  collarHeight: 0.21,
+  neckRadius: 0.105,     // fixed stem from the bearing up to the pivot
+  yokeHalfSpan: 0.36,
+  yokePlateThickness: 0.11,
+  yokeHalfDepth: 0.135,
+  torqueTubeDepth: 0.17,
+
+  /**
+   * How far the elevation yoke reaches above and below the pivot, m.
+   *
+   * Asymmetric on purpose. The pivot is the plane the modules rotate
+   * about, and the modules themselves sit a few centimetres above it, so a
+   * yoke centred on the pivot pushes its cheek plates and its torque tube
+   * up through the laminate -- they appear as grey blocks lying on top of
+   * the glass. Nearly all of it therefore hangs below, which is also where
+   * the hardware is on a real tracker.
+   */
+  yokeRise: 0.02,
+  yokeDrop: 0.33,
+  torqueTubeDrop: 0.11,
+
+  /** Clearance under the array's lower edge at full 90-degree tilt, m. */
+  groundClearance: 0.45,
+  minPivotHeight: 2.05,
+  segments: 40,
+};
+
+/**
+ * One triangle in the shape the mesh builder expects, from metres.
+ *
+ * The normal is derived from the winding rather than supplied, so every
+ * caller below only has to get its vertex order right and the shading
+ * follows.
+ */
+function generatedTriangle(a, b, c, material) {
+  const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+  const n = normalise(cross(u, v));
+  const toInches = (p) => [p[0] / INCH, p[1] / INCH, p[2] / INCH];
+  return {
+    p: [toInches(a), toInches(b), toInches(c)],
+    n: [n, n, n],
+    uv: [[0, 0], [1, 0], [0, 1]],
+    material,
+  };
+}
+
+/** A tube or cone of revolution about +Y, optionally capped. */
+function revolve(out, {
+  y0, y1, r0, r1, material,
+  capTop = false, capBottom = false, segments = MAST.segments,
+}) {
+  const step = (Math.PI * 2) / segments;
+  for (let i = 0; i < segments; i++) {
+    const a0 = i * step;
+    const a1 = (i + 1) * step;
+    const p00 = [Math.cos(a0) * r0, y0, Math.sin(a0) * r0];
+    const p10 = [Math.cos(a1) * r0, y0, Math.sin(a1) * r0];
+    const p01 = [Math.cos(a0) * r1, y1, Math.sin(a0) * r1];
+    const p11 = [Math.cos(a1) * r1, y1, Math.sin(a1) * r1];
+    out.push(generatedTriangle(p00, p11, p10, material));
+    out.push(generatedTriangle(p00, p01, p11, material));
+    if (capTop) out.push(generatedTriangle([0, y1, 0], p01, p11, material));
+    if (capBottom) out.push(generatedTriangle([0, y0, 0], p10, p00, material));
+  }
+}
+
+/** An axis-aligned box, wound so every face points outward. */
+function slab(out, [x0, y0, z0], [x1, y1, z1], material) {
+  const quad = (a, b, c, d) => {
+    out.push(generatedTriangle(a, b, c, material));
+    out.push(generatedTriangle(a, c, d, material));
+  };
+  quad([x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]); // +x
+  quad([x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]); // -x
+  quad([x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]); // +z
+  quad([x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]); // -z
+  quad([x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0]); // +y
+  quad([x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]); // -y
+}
+
+/**
+ * Builds the column, and works out how high the pivot has to sit.
+ *
+ * The height is not a taste decision. The array rotates about its own
+ * centre, so at the slider's maximum 90 degrees its lower edge hangs a full
+ * half-depth below the pivot. Put the pivot too low and the panel scythes
+ * into the ground at steep tilt -- which is what the geometry would
+ * actually do, and looks like a bug. Half the array's slope length plus a
+ * fixed clearance is the shortest column that never collides.
+ *
+ * @param {number} arrayDepthM  the array's depth in its own plane (slope length)
+ * @param {number} arrayWidthM  the array's width along the tilt axis
+ */
+function buildMast(arrayDepthM, arrayWidthM) {
+  const pivotY = Math.max(
+    MAST.minPivotHeight,
+    arrayDepthM / 2 + MAST.groundClearance,
+  );
+
+  // The fixed neck runs all the way up to the pivot; the yoke's cheek
+  // plates straddle it either side, so the two never intersect however far
+  // the array tilts.
+  const neckTop = pivotY;
+  const collarTop = neckTop - 0.42;
+  const columnTop = collarTop - MAST.collarHeight;
+  const flangeTop = MAST.padHeight + MAST.flangeHeight;
+
+  /** Stays planted: footing, column, azimuth bearing, fixed neck. */
+  const footing = [];
+  revolve(footing, {
+    y0: 0, y1: MAST.padSkirt, r0: MAST.padRadius, r1: MAST.padRadius,
+    material: 'GeneratedConcrete', capBottom: true,
+  });
+  revolve(footing, {
+    y0: MAST.padSkirt, y1: MAST.padHeight, r0: MAST.padRadius, r1: MAST.padTopRadius,
+    material: 'GeneratedConcrete', capTop: true,
+  });
+
+  const column = [];
+  revolve(column, {
+    y0: MAST.padHeight, y1: flangeTop,
+    r0: MAST.flangeRadius, r1: MAST.flangeRadius,
+    material: 'GeneratedSteel', capTop: true,
+  });
+  revolve(column, {
+    y0: flangeTop, y1: columnTop,
+    r0: MAST.columnBottomRadius, r1: MAST.columnTopRadius,
+    material: 'GeneratedSteel',
+  });
+  revolve(column, {
+    y0: columnTop, y1: collarTop,
+    r0: MAST.collarRadius, r1: MAST.collarRadius,
+    material: 'GeneratedSteel', capTop: true, capBottom: true,
+  });
+  revolve(column, {
+    y0: collarTop, y1: neckTop,
+    r0: MAST.neckRadius, r1: MAST.neckRadius,
+    material: 'GeneratedSteel', capTop: true,
+  });
+
+  /**
+   * Swings with the array, so it is expressed relative to the pivot.
+   *
+   * Two cheek plates either side of the neck and a torque tube running the
+   * width of the array underneath it -- the elevation drive of a real
+   * two-axis tracker, and the part that makes the tilt legible from a
+   * distance because it visibly rotates with the modules.
+   */
+  const yoke = [];
+  const halfSpan = MAST.yokeHalfSpan;
+  const inner = halfSpan - MAST.yokePlateThickness;
+  for (const sign of [-1, 1]) {
+    slab(yoke,
+      [Math.min(sign * halfSpan, sign * inner), -MAST.yokeDrop, -MAST.yokeHalfDepth],
+      [Math.max(sign * halfSpan, sign * inner), MAST.yokeRise, MAST.yokeHalfDepth],
+      'GeneratedSteel');
+  }
+  const tubeHalfWidth = Math.max(halfSpan, arrayWidthM * 0.42);
+  slab(yoke,
+    [-tubeHalfWidth, -MAST.torqueTubeDrop, -MAST.torqueTubeDepth / 2],
+    [tubeHalfWidth, -MAST.torqueTubeDrop + MAST.torqueTubeDepth, MAST.torqueTubeDepth / 2],
+    'GeneratedSteel');
+
+  return { pivotY, footing, column, yoke };
+}
+
+// ---------------------------------------------------------------------------
 // extraction
 // ---------------------------------------------------------------------------
 
@@ -450,7 +658,7 @@ function normalise(v) {
  * Geometry is converted from inches to metres but otherwise untouched: no
  * decimation, no re-topology, no recomputed normals.
  */
-export async function extractAssembly(assembly, outputPath, { flatten = true } = {}) {
+export async function extractAssembly(assembly, outputPath, { flatten = true, mast = false } = {}) {
   const { Document } = await import('@gltf-transform/core');
 
   // Tilt axis: horizontal, perpendicular to the direction the panel faces.
@@ -607,6 +815,22 @@ export async function extractAssembly(assembly, outputPath, { flatten = true } =
       metallic: 0.82,
       roughness: 0.46,
     },
+    // The two surfaces of the generated pedestal. Concrete is deliberately
+    // fully rough and non-metallic so it never competes with the steel or
+    // the glass for highlights -- it should read as the dullest thing in
+    // the scene, which is what makes the column above it look like metal.
+    SolarPanelFooting: {
+      name: 'Cast_Concrete',
+      baseColor: [0.615, 0.605, 0.585, 1],
+      metallic: 0.0,
+      roughness: 0.93,
+    },
+    SolarPanelYoke: {
+      name: 'Painted_Steel',
+      baseColor: [0.46, 0.485, 0.515, 1],
+      metallic: 0.78,
+      roughness: 0.42,
+    },
   };
 
   const materials = new Map();
@@ -671,16 +895,119 @@ export async function extractAssembly(assembly, outputPath, { flatten = true } =
     return node;
   };
 
-  root.addChild(buildNode('SolarPanelBase', groups.SolarPanelBase, {
-    relativeTo: baseOrigin, applyUnTilt: false,
-  }));
+  /**
+   * Measures the array flat, in metres, from the modules themselves.
+   *
+   * Taken after un-tilting and relative to the pivot, so these are the
+   * array's true width and slope length rather than the footprint its
+   * bounding box happens to cast while tilted. The mast generator needs
+   * the real slope length to work out how high the pivot must sit.
+   */
+  const flatExtent = () => {
+    let minX = Infinity; let maxX = -Infinity;
+    let minZ = Infinity; let maxZ = -Infinity;
+    for (const t of groups.SolarPanelSurface) {
+      for (const vertex of t.p) {
+        const q = unTilt([vertex[0] - pivot[0], vertex[1] - pivot[1], vertex[2] - pivot[2]]);
+        if (q[0] < minX) minX = q[0];
+        if (q[0] > maxX) maxX = q[0];
+        if (q[2] < minZ) minZ = q[2];
+        if (q[2] > maxZ) maxZ = q[2];
+      }
+    }
+    if (!Number.isFinite(minX)) return { widthM: 1, depthM: 1 };
+    return { widthM: (maxX - minX) * INCH, depthM: (maxZ - minZ) * INCH };
+  };
 
-  const tracker = document.createNode('SolarPanelTrackingAssembly').setTranslation([
-    (pivot[0] - baseOrigin[0]) * INCH,
-    (pivot[1] - baseOrigin[1]) * INCH,
-    (pivot[2] - baseOrigin[2]) * INCH,
-  ]);
+  /**
+   * Un-tilted positions of a triangle's three vertices, relative to the
+   * pivot. Inches, with Y measured off the module plane.
+   */
+  const flatVertices = (t) => t.p.map(
+    (vertex) => unTilt([0, 1, 2].map((k) => vertex[k] - pivot[k])),
+  );
+
+  let pole = null;
+  if (mast) {
+    // The catalogue's own ground frame is dropped here, and only here.
+    // Its modules, laminate and rails carry straight through untouched --
+    // what changes is the thing they are bolted to.
+    const flat = flatExtent();
+
+    /**
+     * Drops the old pedestal's bracing from the moving assembly.
+     *
+     * Group membership is decided by where a triangle's CENTROID sits
+     * relative to the module plane, which is the right test for the rails
+     * and clamps it was written for -- they are small and local, so their
+     * centroid describes them. It is the wrong test for a diagonal brace:
+     * the catalogue draws a metre-long strut as one long thin triangle
+     * running from under the array down towards the legs, and its midpoint
+     * lands inside the frame slab even though the triangle itself leaves it
+     * entirely. Those struts were therefore classed as frame, and on a
+     * column they rotate with the array as thin spider legs reaching out
+     * into empty air, bolted to nothing.
+     *
+     * So the cull tests all three VERTICES, not the midpoint: a triangle
+     * survives only if the whole of it stays inside the box the modules and
+     * their rails occupy -- their flat outline plus a rail's width, and the
+     * frame slab's own depth below them. That is a statement about the part
+     * rather than about its average position, which is what was missing.
+     */
+    const margin = 8;            // inches, past the module outline
+    const depthBelow = FRAME_SLAB; // inches, the rails' own sandwich
+    let minX = Infinity; let maxX = -Infinity;
+    let minZ = Infinity; let maxZ = -Infinity;
+    for (const t of groups.SolarPanelSurface) {
+      for (const q of flatVertices(t)) {
+        if (q[0] < minX) minX = q[0];
+        if (q[0] > maxX) maxX = q[0];
+        if (q[2] < minZ) minZ = q[2];
+        if (q[2] > maxZ) maxZ = q[2];
+      }
+    }
+    const before = groups.SolarPanelFrame.length;
+    groups.SolarPanelFrame = groups.SolarPanelFrame.filter((t) => flatVertices(t).every(
+      (q) => q[0] >= minX - margin && q[0] <= maxX + margin
+        && q[2] >= minZ - margin && q[2] <= maxZ + margin
+        && q[1] >= -depthBelow - margin && q[1] <= depthBelow + margin,
+    ));
+    console.error(`[mast] frame triangles ${before} -> ${groups.SolarPanelFrame.length}`);
+
+    pole = buildMast(flat.depthM, flat.widthM);
+
+    const base = buildNode('SolarPanelBase', pole.column, {
+      relativeTo: [0, 0, 0], applyUnTilt: false,
+    });
+    base.addChild(buildNode('SolarPanelFooting', pole.footing, {
+      relativeTo: [0, 0, 0], applyUnTilt: false,
+    }));
+    root.addChild(base);
+  } else {
+    root.addChild(buildNode('SolarPanelBase', groups.SolarPanelBase, {
+      relativeTo: baseOrigin, applyUnTilt: false,
+    }));
+  }
+
+  // On a pole mount the pivot is where the column puts it -- centred on the
+  // axis, at the height that keeps the array clear of the ground through
+  // its full travel -- rather than wherever the catalogue's frame happened
+  // to carry it.
+  const tracker = document.createNode('SolarPanelTrackingAssembly').setTranslation(
+    pole
+      ? [0, pole.pivotY, 0]
+      : [
+        (pivot[0] - baseOrigin[0]) * INCH,
+        (pivot[1] - baseOrigin[1]) * INCH,
+        (pivot[2] - baseOrigin[2]) * INCH,
+      ],
+  );
   root.addChild(tracker);
+  if (pole) {
+    tracker.addChild(buildNode('SolarPanelYoke', pole.yoke, {
+      relativeTo: [0, 0, 0], applyUnTilt: false,
+    }));
+  }
   tracker.addChild(buildNode('SolarPanelSurface', groups.SolarPanelSurface, {
     relativeTo: pivot, applyUnTilt: true,
   }));
@@ -715,11 +1042,26 @@ export async function extractAssembly(assembly, outputPath, { flatten = true } =
   const slopeLength = (assembly.size[2] * INCH) / Math.max(Math.cos(authoredTilt), 0.2);
   const boxEstimate = assembly.size[0] * INCH * slopeLength;
 
+  // With a generated column the catalogue's bounding box describes a frame
+  // that is no longer in the model, so the reported size is rebuilt from
+  // what is actually there: the flat array, standing on its own pedestal.
+  const sizeM = pole
+    ? (() => {
+      const flat = flatExtent();
+      return [
+        +Math.max(flat.widthM, MAST.padRadius * 2).toFixed(2),
+        +(pole.pivotY + MAST.yokeRise).toFixed(2),
+        +flat.depthM.toFixed(2),
+      ];
+    })()
+    : assembly.size.map((v) => +(v * INCH).toFixed(2));
+
   return {
     path: outputPath,
     apertureM2: +apertureM2.toFixed(2),
     boxEstimateM2: +boxEstimate.toFixed(2),
-    sizeM: assembly.size.map((v) => +(v * INCH).toFixed(2)),
+    sizeM,
+    pivotHeightM: pole ? +pole.pivotY.toFixed(2) : null,
     authoredTiltDeg: +assembly.tiltDeg.toFixed(1),
     triangles: Object.fromEntries(Object.entries(groups).map(([k, v]) => [k, v.length])),
   };
@@ -737,7 +1079,8 @@ if (invokedDirectly && process.argv.includes('--extract')) {
     console.error(`no assembly ${index}; there are ${assemblies.length}`);
     process.exit(1);
   }
-  console.log(JSON.stringify(await extractAssembly(assemblies[index], out)));
+  const mast = process.argv.includes('--mast');
+  console.log(JSON.stringify(await extractAssembly(assemblies[index], out, { mast })));
 } else if (invokedDirectly) {
   await report();
 }

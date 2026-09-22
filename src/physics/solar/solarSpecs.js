@@ -17,10 +17,18 @@
  * ---------------------------------------------------------------------------
  * ON THE THREE DIFFERENT MOUNTS
  * ---------------------------------------------------------------------------
- * They are three different products cut from the supplied catalogue, so
- * they look like the three kinds of installation they represent -- and
- * they have genuinely different collecting areas (13.09, 15.43 and
- * 9.61 m^2). That means raw watts are NOT a fair comparison between them:
+ * They are three different products cut from the supplied catalogue,
+ * chosen to match the three installation types in the reference
+ * photographs: a compact array on a pole (the tracker), a wide array on
+ * adjustable legs, and a low fixed ground row.
+ *
+ * Only the tracker's mount is not from the catalogue. The catalogue has no
+ * pole-mounted tracker -- every assembly in it is a ground frame -- so its
+ * column and pivot head are generated and its modules are the supplied
+ * geometry moved onto them. Nothing else in any of the three is drawn.
+ *
+ * They therefore have genuinely different collecting areas -- 6.54, 13.09
+ * and 9.61 m^2. That means raw watts are NOT a fair comparison between them:
  * a bigger panel produces more for reasons that have nothing to do with
  * tracking.
  *
@@ -125,19 +133,32 @@ export const SOLAR_PANELS = [
         + 'cos θ stays close to 1 and the panel collects all it can.',
     },
 
-    apertureArea: 13.09,      // measured
-    widthM: 4.27,
-    depthM: 2.69,
-    heightM: 3.3,
-    moduleCount: 8,
+    // The modules are assembly #5 from the catalogue, on a pedestal built
+    // by scripts/segment-solar.mjs.
+    //
+    // The catalogue has no pole-mounted tracker in it -- all nine of its
+    // assemblies are ground frames -- so the column and pivot head are
+    // generated, and only those. The array itself is the supplied
+    // geometry, lifted off its original frame and set on top. See the
+    // "generated pole mount" section of that script for why every part of
+    // the column is a surface of revolution.
+    apertureArea: 6.54,       // measured, unchanged by the re-mount
+    widthM: 1.96,
+    depthM: 3.22,
+    // Standing height at the steepest tilt the slider allows: the pivot at
+    // 2.06 m plus half the array's slope length swung vertical.
+    heightM: 3.67,
+    moduleCount: 4,
     ...COMMON,
-    ratedPower: rated(13.09),
+    ratedPower: rated(6.54),
 
     scene: {
       modelUrl: '/models/solar-auto.glb',
-      position: [35, 0, 45],
+      position: [38, 0, 45],
       rotationY: 0,
-      labelHeight: 4.2,
+      // Clears the array's top edge at 90 degrees, so the label never ends
+      // up behind the panel it belongs to.
+      labelHeight: 4.1,
     },
   },
 
@@ -164,19 +185,22 @@ export const SOLAR_PANELS = [
         + 'the best morning angle is the wrong evening one.',
     },
 
-    apertureArea: 15.43,      // measured
-    widthM: 4.00,
-    depthM: 2.50,
-    heightM: 3.17,
+    // Assembly #1: a wide array on legs with a rear brace -- the
+    // adjustable-tilt ground mount of the reference photographs, and the
+    // natural one to put under hand control.
+    apertureArea: 13.09,      // measured
+    widthM: 4.27,
+    depthM: 2.69,
+    heightM: 2.18,
     moduleCount: 8,
     ...COMMON,
-    ratedPower: rated(15.43),
+    ratedPower: rated(13.09),
 
     scene: {
       modelUrl: '/models/solar-manual.glb',
-      position: [44, 0, 45],
+      position: [45, 0, 45],
       rotationY: 0,
-      labelHeight: 4.0,
+      labelHeight: 3.8,
     },
   },
 
@@ -237,7 +261,14 @@ export const TOTAL_RATED_POWER = SOLAR_PANELS.reduce((sum, p) => sum + p.ratedPo
  */
 export const SOLAR_VIEW = {
   // Pulled back far enough that the whole row clears the two instrument
-  // rails, which together cover about 40% of the viewport width.
-  cameraOffset: [2, 11, 31],
-  target: [44, 1.8, 45],
+  // rails, which together cover about 40% of the viewport width, and kept
+  // low so the arrays are seen roughly the way the reference photographs
+  // were taken rather than from above.
+  //
+  // The look-at point sits above the middle panel's own centre: the tracker
+  // on the left now stands over three metres tall at steep tilt, and aiming
+  // at the row's geometric centre left it climbing out of the top of the
+  // frame every morning and evening.
+  cameraOffset: [2, 9, 27],
+  target: [45.5, 2.4, 45],
 };

@@ -1,23 +1,44 @@
 /**
- * The solar array, and the site it stands on.
+ * The three solar panels, and the site they stand on.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THREE PANELS
+ * ---------------------------------------------------------------------------
+ * They differ in ONE thing that matters: how their orientation is decided.
+ *
+ *   auto    a two-axis tracker that follows the sun
+ *   manual  whatever tilt and azimuth the user dials in
+ *   fixed   bolted at 35 degrees facing south, never moves
+ *
+ * All three see the same sun, the same sky and the same weather, and all
+ * three are integrated every frame, so the difference in their output is
+ * attributable to the control mechanism alone.
+ *
+ * ---------------------------------------------------------------------------
+ * ON THE THREE DIFFERENT MOUNTS
+ * ---------------------------------------------------------------------------
+ * They are three different products cut from the supplied catalogue, so
+ * they look like the three kinds of installation they represent -- and
+ * they have genuinely different collecting areas (13.09, 15.43 and
+ * 9.61 m^2). That means raw watts are NOT a fair comparison between them:
+ * a bigger panel produces more for reasons that have nothing to do with
+ * tracking.
+ *
+ * So the interface reports SPECIFIC YIELD -- watts per square metre of
+ * aperture -- beside the absolute figure. Specific yield divides the area
+ * back out, leaving only the effect of orientation, which is exactly the
+ * quantity this module exists to teach. Absolute watts still answer the
+ * other real question: how much electricity does this installation make.
  *
  * ---------------------------------------------------------------------------
  * ON THE PARAMETERS
  * ---------------------------------------------------------------------------
- * The aperture area and the array's dimensions are MEASURED from the actual
- * geometry in the supplied model, by scripts/segment-solar.mjs. Everything
- * else -- efficiency, temperature coefficient, NOCT, inverter efficiency --
- * is an EXAMPLE parameter set representative of a modern monocrystalline
- * installation, not the specification of any particular product. The model
- * arrived without a datasheet. The interface says so wherever they appear.
- *
- * How the aperture was measured, and why it is not a sum of triangle areas:
- * each module in the model is a solid with a back face, the modules are
- * built in two coincident layers, and there is a backing panel behind them,
- * so adding face areas counts the same square metre three or four times.
- * The figure below is a COVERAGE measurement -- module faces projected onto
- * the array plane and rasterised, each covered cell counted once. It came
- * to 13.09 m^2 against 13.18 m^2 measuring the rack by hand: 99.3% agreement.
+ * Aperture areas and dimensions are MEASURED from the actual geometry by
+ * scripts/segment-solar.mjs (coverage measurement -- see that file for why
+ * a sum of triangle areas is wrong on this model). Efficiency, temperature
+ * coefficient, NOCT and inverter efficiency are EXAMPLE values typical of a
+ * modern monocrystalline installation; the catalogue arrived without a
+ * datasheet. The interface says so wherever they appear.
  */
 
 /** Where the installation is. Astana, Kazakhstan. */
@@ -30,19 +51,14 @@ export const SITE = {
    * Day of year used for the sun's path. 81 is the March equinox, chosen
    * deliberately: at this latitude the sun then rises at almost exactly
    * 06:00 and sets at almost exactly 18:00, so the time slider spans one
-   * complete solar day end to end, and the panel really does reach zero
-   * output at both ends of its travel.
+   * complete solar day end to end, and the panels really do reach zero
+   * output at both ends of their travel.
    */
   dayOfYear: 81,
 };
 
-/** Solar constant, W/m^2 -- mean extraterrestrial irradiance. */
 export const SOLAR_CONSTANT = 1367;
-
-/** Irradiance at Standard Test Conditions, W/m^2. */
 export const STC_IRRADIANCE = 1000;
-
-/** Cell temperature at STC, degrees C. */
 export const STC_TEMPERATURE = 25;
 
 export const TIME_MIN = 6;
@@ -58,62 +74,170 @@ export const AZIMUTH_MAX = 360;
 /** Due south -- the optimum fixed orientation in the northern hemisphere. */
 export const AZIMUTH_DEFAULT = 180;
 
+/** Panel 3 is bolted here and never moves. */
+export const FIXED_TILT = 35;
+export const FIXED_AZIMUTH = 180;
+
 export const CLOUD_DEFAULT = 0;
 export const TEMPERATURE_DEFAULT = 20;
 export const TEMPERATURE_MIN = -10;
 export const TEMPERATURE_MAX = 45;
 
-export const SOLAR_ARRAY = {
-  id: 'solar',
-  accent: '#b45309',
-
-  name: { kk: 'Күн панельдері', en: 'Solar Array' },
-  shortName: { kk: 'Күн панелі', en: 'Solar' },
-  typeCode: 'PV',
-  typeLabel: {
-    kk: 'Екі осьті бақылаушы, монокристалды',
-    en: 'Two-axis tracker, monocrystalline',
-  },
-  description: {
-    kk: 'Екі осьті бақылау жүйесі бар күн панельдерінің қатары. Тіреулері '
-      + 'жерде бекітілген, ал панельдер көлденең білік (torque tube) '
-      + 'айналасында еңкейіп, тік ось бойынша бұрылады. Бақылау қосулы '
-      + 'болса, панель күнге тұрақты қарап тұрады — cos θ ≈ 1.',
-    en: 'A module array on a two-axis tracker. The posts are fixed in the '
-      + 'ground while the modules tilt about a horizontal torque tube and '
-      + 'swing about the vertical axis. With tracking on, the array holds '
-      + 'itself square to the sun and cos θ stays near 1.',
-  },
-
-  // --- measured from the model geometry ---
-  apertureArea: 13.09,        // m^2, coverage-measured (see header)
-  widthM: 4.27,
-  depthM: 2.69,
-  heightM: 3.3,
-  moduleCount: 8,             // 2 rows x 4 columns, counted in the model
-
-  // --- example operating parameters (2.6 kW class) ---
-  efficiency: 0.20,           // module efficiency at STC
-  ratedPower: 2600,           // W DC at STC, = aperture x 1000 x efficiency
-  temperatureCoefficient: -0.004,  // per degree C, typical for mono c-Si
-  noct: 45,                   // Nominal Operating Cell Temperature, degrees C
+/** Electrical parameters shared by all three panels. */
+const COMMON = {
+  efficiency: 0.20,
+  temperatureCoefficient: -0.004,
+  noct: 45,
   inverterEfficiency: 0.96,
-  soilingFactor: 0.97,        // dust and dirt on the glass
-
-  /** How fast the tracker slews, degrees per second. Real trackers are slow. */
+  soilingFactor: 0.97,
+  /** Degrees per second. Real trackers are slow. */
   trackingSlewRate: 9,
+};
 
-  scene: {
-    modelUrl: '/models/solar.glb',
-    // In the near field, clear of the three turbines, at true scale.
-    position: [34, 0, 44],
-    rotationY: 0,
-    cameraOffset: [9, 6.5, 13],
-    labelHeight: 4.4,
-    // The nodes the runtime drives. Built by scripts/segment-solar.mjs.
-    rootNode: 'SolarPanelRoot',
-    trackerNode: 'SolarPanelTrackingAssembly',
-    surfaceNode: 'SolarPanelSurface',
-    baseNode: 'SolarPanelBase',
+/** Rated DC power follows from aperture and efficiency at STC. */
+const rated = (apertureArea) => Math.round(apertureArea * STC_IRRADIANCE * COMMON.efficiency);
+
+/**
+ * @typedef {'auto'|'manual'|'fixed'} PanelMode
+ */
+
+export const SOLAR_PANELS = [
+  {
+    id: 'auto',
+    order: 1,
+    mode: /** @type {PanelMode} */ ('auto'),
+    accent: '#b45309',
+
+    name: { kk: 'Панель 1 — автотрекер', en: 'Panel 1 — Auto tracker' },
+    shortName: { kk: 'Автотрекер', en: 'Auto' },
+    typeCode: 'AUTO',
+    typeLabel: {
+      kk: 'Екі осьті автоматты бақылау жүйесі',
+      en: 'Two-axis automatic sun tracker',
+    },
+    description: {
+      kk: 'Күннің азимуты мен биіктігін үздіксіз есептеп, панельді соған '
+        + 'қаратып отырады. Мақсаты — түсу бұрышын нөлге жақын ұстау, '
+        + 'сонда cos θ ≈ 1 болады да, панель мүмкін радиацияның барлығын '
+        + 'қабылдайды.',
+      en: 'Continuously computes the sun’s azimuth and altitude and '
+        + 'aims the array at it, holding the incidence angle near zero so '
+        + 'cos θ stays close to 1 and the panel collects all it can.',
+    },
+
+    apertureArea: 13.09,      // measured
+    widthM: 4.27,
+    depthM: 2.69,
+    heightM: 3.3,
+    moduleCount: 8,
+    ...COMMON,
+    ratedPower: rated(13.09),
+
+    scene: {
+      modelUrl: '/models/solar-auto.glb',
+      position: [35, 0, 45],
+      rotationY: 0,
+      labelHeight: 4.2,
+    },
   },
+
+  {
+    id: 'manual',
+    order: 2,
+    mode: /** @type {PanelMode} */ ('manual'),
+    accent: '#1d4ed8',
+
+    name: { kk: 'Панель 2 — қолмен реттелетін', en: 'Panel 2 — Manual' },
+    shortName: { kk: 'Қолмен', en: 'Manual' },
+    typeCode: 'MANUAL',
+    typeLabel: {
+      kk: 'Бұрыштары қолмен реттелетін',
+      en: 'User-set tilt and azimuth',
+    },
+    description: {
+      kk: 'Бұрыштарын пайдаланушы өзі таңдайды. Күн жылжыған сайын бұл '
+        + 'панель орнында қалады, сондықтан оңтайлы бұрышты тәжірибе '
+        + 'жасап табу керек — таңертеңгі ең жақсы бұрыш кешке жарамсыз '
+        + 'болады.',
+      en: 'You set the angles yourself. It stays where you put it as the '
+        + 'sun moves, so the optimum has to be found by experiment -- and '
+        + 'the best morning angle is the wrong evening one.',
+    },
+
+    apertureArea: 15.43,      // measured
+    widthM: 4.00,
+    depthM: 2.50,
+    heightM: 3.17,
+    moduleCount: 8,
+    ...COMMON,
+    ratedPower: rated(15.43),
+
+    scene: {
+      modelUrl: '/models/solar-manual.glb',
+      position: [44, 0, 45],
+      rotationY: 0,
+      labelHeight: 4.0,
+    },
+  },
+
+  {
+    id: 'fixed',
+    order: 3,
+    mode: /** @type {PanelMode} */ ('fixed'),
+    accent: '#0d9488',
+
+    name: { kk: 'Панель 3 — бекітілген', en: 'Panel 3 — Fixed' },
+    shortName: { kk: 'Бекітілген', en: 'Fixed' },
+    typeCode: 'FIXED',
+    typeLabel: {
+      kk: `Тұрақты бұрыш — ${FIXED_TILT}° / ${FIXED_AZIMUTH}°`,
+      en: `Fixed at ${FIXED_TILT}° / ${FIXED_AZIMUTH}°`,
+    },
+    description: {
+      kk: 'Бұрышы өзгермейді: еңкею 35°, азимут 180° (оңтүстік). Бұл — '
+        + 'дүние жүзінде ең көп таралған орнату тәсілі және салыстыру '
+        + 'үшін эталон. Тал түсте ол дерлік оңтайлы, бірақ таңертең мен '
+        + 'кешке көп ұтылады.',
+      en: 'Its angle never changes: 35° tilt, due south. This is the most '
+        + 'common installation in the world and the reference the other '
+        + 'two are measured against -- near-optimal at noon, and losing '
+        + 'badly at both ends of the day.',
+    },
+
+    apertureArea: 9.61,       // measured
+    widthM: 5.41,
+    depthM: 1.54,
+    heightM: 1.87,
+    moduleCount: 6,
+    ...COMMON,
+    ratedPower: rated(9.61),
+
+    scene: {
+      modelUrl: '/models/solar-fixed.glb',
+      position: [53, 0, 45],
+      rotationY: 0,
+      labelHeight: 2.9,
+    },
+  },
+];
+
+export const PANEL_BY_ID = Object.fromEntries(SOLAR_PANELS.map((p) => [p.id, p]));
+export const PANEL_IDS = SOLAR_PANELS.map((p) => p.id);
+
+/** Combined rating of the whole installation, W. */
+export const TOTAL_RATED_POWER = SOLAR_PANELS.reduce((sum, p) => sum + p.ratedPower, 0);
+
+/** Where the camera sits to frame all three. */
+/**
+ * Where the camera sits to frame all three.
+ *
+ * The three are set in a row at equal depth so they subtend the same
+ * angle -- placed at different distances they read as different sizes,
+ * which is exactly the misreading this module is trying to avoid.
+ */
+export const SOLAR_VIEW = {
+  // Pulled back far enough that the whole row clears the two instrument
+  // rails, which together cover about 40% of the viewport width.
+  cameraOffset: [2, 11, 31],
+  target: [44, 1.8, 45],
 };

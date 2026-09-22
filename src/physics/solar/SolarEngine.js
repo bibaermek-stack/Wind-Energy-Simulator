@@ -1,19 +1,20 @@
 /**
  * SolarEngine -- the solar side's time-stepping core.
  *
- * Deliberately mirrors SimulationEngine's contract: `step(realDt)`,
- * `snapshot()`, `subscribe(fn)`, `reset()`. The clock component steps both,
- * the store bridges both the same way, and hybrid mode simply reads both
- * snapshots. Nothing in the wind engine had to change to allow this.
+ * Mirrors SimulationEngine's contract: `step(realDt)`, `snapshot()`,
+ * `subscribe(fn)`, `reset()`. The clock component steps both, the store
+ * bridges both the same way, and hybrid mode reads both snapshots.
  *
- * Two panels are integrated at once -- one fixed, one tracking -- from a
- * single set of inputs. That is what makes the comparison honest: same sun,
- * same sky, same hardware, only the orientation differs.
+ * All three panels are integrated every frame from ONE set of inputs --
+ * the same sun, sky and weather. That is what makes the comparison
+ * meaningful: the only thing that differs between them is how their
+ * orientation is decided.
  */
 
 import {
-  SOLAR_ARRAY, SITE,
+  SOLAR_PANELS, PANEL_BY_ID, SITE,
   TIME_DEFAULT, TILT_DEFAULT, AZIMUTH_DEFAULT,
+  FIXED_TILT, FIXED_AZIMUTH,
   CLOUD_DEFAULT, TEMPERATURE_DEFAULT,
 } from './solarSpecs.js';
 import { sunPosition, daylightHours } from './sunPosition.js';
@@ -28,34 +29,39 @@ const MAX_SUBSTEP = 0.1;
 const MAX_SUBSTEPS = 120;
 const MAX_REAL_DELTA = 1.0;
 
-/** Simulated seconds per real second at each time-scale setting. */
+/** Simulated seconds per real second at each setting. */
 export const TIME_SCALES = [1, 10, 100, 1000];
 
 /**
- * One panel: its actual orientation, which lags its target, plus the energy
+ * One panel: its actual orientation, which lags its target, and the energy
  * it has produced.
  */
 class PanelRuntime {
-  constructor(spec, { tracking }) {
+  constructor(spec) {
     this.spec = spec;
-    this.tracking = tracking;
     this.reset();
   }
 
   reset() {
-    this.tilt = this.tracking ? 0 : TILT_DEFAULT;
-    this.azimuth = AZIMUTH_DEFAULT;
+    if (this.spec.mode === 'fixed') {
+      this.tilt = FIXED_TILT;
+      this.azimuth = FIXED_AZIMUTH;
+    } else {
+      this.tilt = TILT_DEFAULT;
+      this.azimuth = AZIMUTH_DEFAULT;
+    }
     this.energyJoules = 0;
     this.point = null;
   }
 
   /**
-   * Slews towards the target orientation at a finite rate.
+   * Slews towards a target orientation at a finite rate.
    *
-   * A real tracker takes minutes to cross the sky, and instantly snapping
-   * the array to a new angle would both look wrong and hide the fact that
-   * tracking is a mechanical process. Azimuth takes the short way round, so
-   * a tracker passing 359 -> 1 degrees does not unwind the long way.
+   * A real tracker takes minutes to cross the sky. Snapping the array to a
+   * new angle would look wrong and would hide the fact that tracking is a
+   * mechanical process with a speed limit. Azimuth takes the short way
+   * round, so a tracker crossing 359 -> 1 degrees does not unwind the long
+   * way about.
    */
   slew(target, dt) {
     const rate = this.spec.trackingSlewRate * dt;
@@ -63,25 +69,64 @@ class PanelRuntime {
     const dTilt = target.tilt - this.tilt;
     this.tilt += Math.sign(dTilt) * Math.min(Math.abs(dTilt), rate);
 
-    let dAz = ((target.azimuth - this.azimuth + 540) % 360) - 180;
+    const dAz = ((target.azimuth - this.azimuth + 540) % 360) - 180;
     this.azimuth = (this.azimuth + Math.sign(dAz) * Math.min(Math.abs(dAz), rate) + 360) % 360;
   }
 
-  step(dt, sunPos, weather, manual) {
-    const target = this.tracking ? trackingOrientation(sunPos) : manual;
-    this.slew(target, dt);
+  /**
+   * Advance by dt seconds.
+   *
+   * @param {object} controls  { autoTracking, manual: {tilt, azimuth} }
+   */
+  step(dt, sunPos, weather, controls) {
+    const target = this.targetFor(sunPos, controls);
+
+    // A fixed panel is bolted down: it does not slew, it simply is where
+    // it is. Giving it a slew would let it drift if anything ever wrote a
+    // different target, and "fixed" has to mean fixed.
+    if (this.spec.mode === 'fixed') {
+      this.tilt = FIXED_TILT;
+      this.azimuth = FIXED_AZIMUTH;
+    } else if (target) {
+      this.slew(target, dt);
+    }
+
     this.point = operatingPoint(this.spec, sunPos, this.tilt, this.azimuth, weather);
     this.energyJoules += this.point.powerAc * dt;
+  }
+
+  /**
+   * Where this panel is trying to point, or null if it should hold still.
+   *
+   * The auto panel returns null when tracking is switched off: it freezes
+   * at whatever angle it had reached and the sun moves on without it. That
+   * is the instructive behaviour -- you watch the alignment angle open up
+   * in real time, which is precisely what a stalled tracker costs you.
+   */
+  targetFor(sunPos, controls) {
+    switch (this.spec.mode) {
+      case 'auto':
+        return controls.autoTracking ? trackingOrientation(sunPos) : null;
+      case 'manual':
+        return controls.manual;
+      default:
+        return null;
+    }
   }
 
   get energyWattHours() {
     return this.energyJoules / 3600;
   }
+
+  /** Watts per square metre of aperture -- comparable across panel sizes. */
+  get specificYield() {
+    return this.point ? this.point.powerAc / this.spec.apertureArea : 0;
+  }
 }
 
 export class SolarEngine {
-  constructor(spec = SOLAR_ARRAY, site = SITE) {
-    this.spec = spec;
+  constructor(specs = SOLAR_PANELS, site = SITE) {
+    this.specs = specs;
     this.site = site;
 
     /** Solar time of day, hours. The main control. */
@@ -90,9 +135,10 @@ export class SolarEngine {
     this.running = false;
     this.timeScale = 1;
 
-    /** Manual orientation, used when tracking is off. */
+    /** Panel 1's tracker. */
+    this.autoTracking = true;
+    /** Panel 2's orientation, from the sliders. */
     this.manual = { tilt: TILT_DEFAULT, azimuth: AZIMUTH_DEFAULT };
-    this.trackingEnabled = true;
 
     this.weather = {
       cloudFraction: CLOUD_DEFAULT,
@@ -100,10 +146,7 @@ export class SolarEngine {
       dayOfYear: site.dayOfYear,
     };
 
-    this.panels = {
-      tracking: new PanelRuntime(spec, { tracking: true }),
-      fixed: new PanelRuntime(spec, { tracking: false }),
-    };
+    this.panels = Object.fromEntries(specs.map((spec) => [spec.id, new PanelRuntime(spec)]));
 
     this.history = [];
     this._sincePublish = 0;
@@ -121,7 +164,7 @@ export class SolarEngine {
   setTimeOfDay(hours) { this.timeOfDay = hours; this._evaluate(0); this.publish(); }
   setRunning(value) { this.running = value; }
   setTimeScale(value) { this.timeScale = value; }
-  setTracking(value) { this.trackingEnabled = value; }
+  setAutoTracking(value) { this.autoTracking = value; }
   setManual(partial) { Object.assign(this.manual, partial); }
   setWeather(partial) { Object.assign(this.weather, partial); this._evaluate(0); this.publish(); }
 
@@ -133,26 +176,22 @@ export class SolarEngine {
     this.publish();
   }
 
-  /**
-   * The panel the interface is talking about: the tracking one when
-   * tracking is enabled, the fixed one when it is not.
-   */
-  get activePanel() {
-    return this.trackingEnabled ? this.panels.tracking : this.panels.fixed;
-  }
-
   get sun() {
     return sunPosition(this.timeOfDay, this.site.latitude, this.weather.dayOfYear);
   }
 
+  /** Live orientation of one panel, for the 3D scene to read per frame. */
+  orientationOf(id) {
+    const panel = this.panels[id];
+    return panel ? { tilt: panel.tilt, azimuth: panel.azimuth } : null;
+  }
+
   _evaluate(dt) {
     const sunPos = this.sun;
-    // The tracking panel always tracks; the fixed panel always sits where
-    // the manual sliders put it. Both are integrated regardless of which
-    // one the interface is currently showing, so switching the tracking
-    // toggle never loses the other one's accumulated energy.
-    this.panels.tracking.step(dt, sunPos, this.weather, this.manual);
-    this.panels.fixed.step(dt, sunPos, this.weather, this.manual);
+    const controls = { autoTracking: this.autoTracking, manual: this.manual };
+    for (const panel of Object.values(this.panels)) {
+      panel.step(dt, sunPos, this.weather, controls);
+    }
   }
 
   step(realDt) {
@@ -165,7 +204,6 @@ export class SolarEngine {
 
     for (let i = 0; i < substeps; i++) {
       if (this.running) {
-        // Advance the solar clock. Time of day is in hours, dt in seconds.
         this.timeOfDay += dt / 3600;
         if (this.timeOfDay >= 24) this.timeOfDay -= 24;
       }
@@ -175,12 +213,12 @@ export class SolarEngine {
     this._sinceHistory += realElapsed;
     if (this._sinceHistory >= HISTORY_INTERVAL) {
       this._sinceHistory = 0;
-      this.history.push({
-        t: this.timeOfDay,
-        tracking: this.panels.tracking.point.powerAc,
-        fixed: this.panels.fixed.point.powerAc,
-        energy: this.activePanel.energyWattHours,
-      });
+      const sample = { t: this.timeOfDay };
+      for (const [id, panel] of Object.entries(this.panels)) {
+        sample[id] = panel.point.powerAc;
+        sample[`${id}Energy`] = panel.energyWattHours;
+      }
+      this.history.push(sample);
       if (this.history.length > HISTORY_LENGTH) this.history.shift();
     }
 
@@ -192,36 +230,35 @@ export class SolarEngine {
   }
 
   snapshot() {
-    const sunPos = this.sun;
-    const daylight = daylightHours(this.site.latitude, this.weather.dayOfYear);
+    const panels = {};
+    let totalPower = 0;
+    let totalEnergy = 0;
+
+    for (const [id, runtime] of Object.entries(this.panels)) {
+      panels[id] = {
+        id,
+        mode: runtime.spec.mode,
+        ...runtime.point,
+        energyWh: runtime.energyWattHours,
+        specificYield: runtime.specificYield,
+      };
+      totalPower += runtime.point.powerAc;
+      totalEnergy += runtime.energyWattHours;
+    }
+
     return {
       timeOfDay: this.timeOfDay,
       running: this.running,
-      trackingEnabled: this.trackingEnabled,
+      autoTracking: this.autoTracking,
       manual: { ...this.manual },
       weather: { ...this.weather },
-      sun: sunPos,
-      daylight,
+      sun: this.sun,
+      daylight: daylightHours(this.site.latitude, this.weather.dayOfYear),
       history: this.history,
-      tracking: {
-        ...this.panels.tracking.point,
-        energyWh: this.panels.tracking.energyWattHours,
-        actualTilt: this.panels.tracking.tilt,
-        actualAzimuth: this.panels.tracking.azimuth,
-      },
-      fixed: {
-        ...this.panels.fixed.point,
-        energyWh: this.panels.fixed.energyWattHours,
-        actualTilt: this.panels.fixed.tilt,
-        actualAzimuth: this.panels.fixed.azimuth,
-      },
+      panels,
+      totalPower,
+      totalEnergy,
     };
-  }
-
-  /** Telemetry for whichever panel the interface is showing. */
-  active() {
-    const snap = this.snapshot();
-    return this.trackingEnabled ? snap.tracking : snap.fixed;
   }
 
   publish() {
@@ -235,3 +272,5 @@ export const solarEngine = new SolarEngine();
 if (import.meta.env?.DEV) {
   globalThis.__solar = solarEngine;
 }
+
+export { PANEL_BY_ID };

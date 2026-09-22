@@ -5,7 +5,9 @@
  * a reviewer would check by hand and fails loudly on anything physically
  * impossible. Run: node scripts/verify-solar.mjs
  */
-import { SOLAR_ARRAY, SITE, STC_IRRADIANCE } from '../src/physics/solar/solarSpecs.js';
+import {
+  SOLAR_PANELS, PANEL_BY_ID, SITE, STC_IRRADIANCE, FIXED_TILT, FIXED_AZIMUTH,
+} from '../src/physics/solar/solarSpecs.js';
 import {
   sunPosition, daylightHours, sunVector, formatHour, declination,
 } from '../src/physics/solar/sunPosition.js';
@@ -20,11 +22,18 @@ const check = (condition, message) => {
 };
 
 const W = (w) => (w >= 1000 ? `${(w / 1000).toFixed(2)} kW` : `${w.toFixed(0)} W`);
-const spec = SOLAR_ARRAY;
+const spec = PANEL_BY_ID.auto;
 const weather = { cloudFraction: 0, ambientC: 20, dayOfYear: SITE.dayOfYear };
 
 console.log(`Site: ${SITE.name.en}, ${SITE.latitude}°N   day ${SITE.dayOfYear} (declination ${declination(SITE.dayOfYear).toFixed(2)}°)`);
-console.log(`Array: ${spec.widthM} x ${spec.depthM} m, aperture ${spec.apertureArea} m², ${(spec.efficiency * 100).toFixed(0)}% efficient, rated ${W(spec.ratedPower)}\n`);
+for (const panel of SOLAR_PANELS) {
+  console.log(
+    `${panel.typeCode.padEnd(7)} ${panel.widthM} x ${panel.depthM} m`
+    + `   aperture ${String(panel.apertureArea).padStart(6)} m²`
+    + `   rated ${W(panel.ratedPower).padStart(8)}`,
+  );
+}
+console.log('');
 
 // --- the day -------------------------------------------------------------
 const day = daylightHours(SITE.latitude, SITE.dayOfYear);
@@ -132,6 +141,114 @@ for (let hour = 0; hour < 24; hour += stepH) {
 const gain = ((trackingWh / fixedWh) - 1) * 100;
 console.log(`\nDaily energy   tracking ${(trackingWh / 1000).toFixed(2)} kWh   fixed ${(fixedWh / 1000).toFixed(2)} kWh   gain +${gain.toFixed(1)}%`);
 check(gain > 5 && gain < 80, `two-axis tracking gain of ${gain.toFixed(1)}% is outside the plausible 5-80% range`);
+
+// --- three-panel invariants ----------------------------------------------
+//
+// Compared on SPECIFIC yield, not watts. The three mounts have genuinely
+// different areas (13.09, 15.43 and 9.61 m^2), so a larger panel can
+// out-produce a better-aimed one in absolute terms while saying nothing
+// at all about tracking. Per square metre, a panel held square to the sun
+// cannot be beaten by one that is not -- that is the invariant worth
+// asserting, and it is the one the interface is built to demonstrate.
+console.log('\n time     auto W/m²   manual W/m²    fixed W/m²   auto θ   fixed θ');
+
+const manualAngles = { tilt: 35, azimuth: 180 };
+const anglesFor = (panel, aim) => {
+  if (panel.mode === 'auto') return aim;
+  if (panel.mode === 'manual') return manualAngles;
+  return { tilt: FIXED_TILT, azimuth: FIXED_AZIMUTH };
+};
+
+for (let hour = 7; hour <= 17; hour += 2) {
+  const pos = sunPosition(hour, SITE.latitude, SITE.dayOfYear);
+  const aim = trackingOrientation(pos);
+
+  const points = {};
+  const yields = {};
+  for (const panel of SOLAR_PANELS) {
+    const angles = anglesFor(panel, aim);
+    const point = operatingPoint(panel, pos, angles.tilt, angles.azimuth, weather);
+    points[panel.id] = point;
+    yields[panel.id] = point.powerAc / panel.apertureArea;
+  }
+
+  console.log(
+    ` ${formatHour(hour)}  ${yields.auto.toFixed(1).padStart(10)}`
+    + `${yields.manual.toFixed(1).padStart(14)}${yields.fixed.toFixed(1).padStart(14)}`
+    + `${points.auto.incidenceDeg.toFixed(1).padStart(9)}°`
+    + `${points.fixed.incidenceDeg.toFixed(1).padStart(9)}°`,
+  );
+
+  check(yields.auto >= yields.manual - 1e-6,
+    `at ${formatHour(hour)} the manual panel out-yields the tracker `
+    + `(${yields.manual.toFixed(1)} > ${yields.auto.toFixed(1)} W/m²) -- impossible when the tracker is square to the sun`);
+  check(yields.auto >= yields.fixed - 1e-6,
+    `at ${formatHour(hour)} the fixed panel out-yields the tracker `
+    + `(${yields.fixed.toFixed(1)} > ${yields.auto.toFixed(1)} W/m²)`);
+  check(points.auto.incidenceDeg < 0.01,
+    `at ${formatHour(hour)} the tracker is not square to the sun: θ = ${points.auto.incidenceDeg.toFixed(3)}°`);
+
+  // Panel 3 must never move, whatever the sun is doing.
+  check(points.fixed.tilt === FIXED_TILT && points.fixed.azimuth === FIXED_AZIMUTH,
+    `at ${formatHour(hour)} the fixed panel has moved to ${points.fixed.tilt}/${points.fixed.azimuth}`);
+
+  for (const panel of SOLAR_PANELS) {
+    check(points[panel.id].powerAc <= panel.ratedPower + 1e-6,
+      `at ${formatHour(hour)} ${panel.typeCode} exceeds its rating`);
+    check(points[panel.id].powerAc >= 0, `at ${formatHour(hour)} ${panel.typeCode} produced negative power`);
+  }
+}
+
+// Each panel's rating must follow from its own measured aperture.
+for (const panel of SOLAR_PANELS) {
+  const implied = panel.apertureArea * STC_IRRADIANCE * panel.efficiency;
+  check(Math.abs(implied - panel.ratedPower) / panel.ratedPower < 0.02,
+    `${panel.typeCode}: rated ${W(panel.ratedPower)} disagrees with aperture x STC x η = ${W(implied)}`);
+}
+
+// At solar noon the fixed panel is nearly optimal by construction, so the
+// three should converge. If they do not, one of them is misconfigured.
+{
+  const pos = sunPosition(12, SITE.latitude, SITE.dayOfYear);
+  const aim = trackingOrientation(pos);
+  const yieldOf = (panel) => {
+    const angles = anglesFor(panel, aim);
+    return operatingPoint(panel, pos, angles.tilt, angles.azimuth, weather).powerAc / panel.apertureArea;
+  };
+  const autoYield = yieldOf(PANEL_BY_ID.auto);
+  const fixedYield = yieldOf(PANEL_BY_ID.fixed);
+  const ratio = fixedYield / autoYield;
+  console.log(`\nAt solar noon the fixed panel reaches ${(ratio * 100).toFixed(1)}% of the tracker's yield`);
+  check(ratio > 0.9, `fixed panel should be near-optimal at noon, got ${(ratio * 100).toFixed(1)}%`);
+}
+
+// Daily yield per square metre, the headline comparison.
+{
+  const stepHours = 1 / 60;
+  const totals = Object.fromEntries(SOLAR_PANELS.map((p) => [p.id, 0]));
+  for (let hour = 0; hour < 24; hour += stepHours) {
+    const pos = sunPosition(hour, SITE.latitude, SITE.dayOfYear);
+    if (pos.altitude <= 0) continue;
+    const aim = trackingOrientation(pos);
+    for (const panel of SOLAR_PANELS) {
+      const angles = anglesFor(panel, aim);
+      totals[panel.id] += operatingPoint(panel, pos, angles.tilt, angles.azimuth, weather).powerAc * stepHours;
+    }
+  }
+  console.log('\ndaily energy      absolute        per m²');
+  for (const panel of SOLAR_PANELS) {
+    const perArea = totals[panel.id] / panel.apertureArea;
+    console.log(
+      ` ${panel.typeCode.padEnd(8)}${(totals[panel.id] / 1000).toFixed(2).padStart(9)} kWh`
+      + `${(perArea / 1000).toFixed(3).padStart(12)} kWh/m²`,
+    );
+  }
+  const gainAuto = ((totals.auto / PANEL_BY_ID.auto.apertureArea)
+    / (totals.fixed / PANEL_BY_ID.fixed.apertureArea) - 1) * 100;
+  console.log(` tracking gain over fixed, per m²: +${gainAuto.toFixed(1)}%`);
+  check(gainAuto > 5 && gainAuto < 80,
+    `tracking gain of ${gainAuto.toFixed(1)}% per m² is outside the plausible 5-80% range`);
+}
 
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} CHECK(S) FAILED.`);
 process.exit(failures === 0 ? 0 : 1);

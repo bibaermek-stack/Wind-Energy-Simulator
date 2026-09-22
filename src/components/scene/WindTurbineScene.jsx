@@ -27,7 +27,7 @@ import Sun from './Sun.jsx';
 import SolarArray from './SolarArray.jsx';
 import SunRays from './SunRays.jsx';
 import { modeOf } from '../../modes/energyModes.js';
-import { SOLAR_ARRAY } from '../../physics/solar/solarSpecs.js';
+import { SOLAR_PANELS, SOLAR_VIEW } from '../../physics/solar/solarSpecs.js';
 import { T } from '../../i18n/strings.js';
 
 /** Mid-morning sun: low enough to throw long, readable shadows. */
@@ -157,7 +157,7 @@ export default function WindTurbineScene() {
       <Lighting solarSun={mode.hasSolar} />
       <Weather solarSun={mode.hasSolar} />
 
-      {mode.hasSolar && <Sun target={SOLAR_ARRAY.scene.position} />}
+      {mode.hasSolar && <Sun target={SOLAR_VIEW.target} />}
 
       <Suspense fallback={<LoadingOverlay />}>
         <Landscape />
@@ -169,7 +169,9 @@ export default function WindTurbineScene() {
           <WindTurbine key={spec.id} spec={spec} />
         ))}
 
-        {mode.hasSolar && <SolarArray showLabel={showLabels} />}
+        {mode.hasSolar && SOLAR_PANELS.map((panel) => (
+          <SolarArray key={panel.id} spec={panel} showLabel={showLabels} />
+        ))}
 
         <Preload all />
       </Suspense>

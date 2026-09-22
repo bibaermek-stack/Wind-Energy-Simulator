@@ -1,20 +1,28 @@
 /**
- * Fixed panel against tracking panel.
+ * The three-panel comparison.
  *
- * Both panels are integrated by the engine at all times from one set of
- * inputs -- same sun, same sky, same aperture, same efficiency -- so this
- * view needs no special simulation path and the comparison is genuinely
- * like for like. The only difference between them is where they point.
+ * All three panels are integrated by the engine at all times from one set
+ * of inputs -- same sun, same sky, same electrical parameters -- so this
+ * view needs no special simulation path, and the only thing that differs
+ * between the columns is how each panel's orientation is decided.
  *
- * The daily-energy figures are integrated over the whole day analytically
- * rather than taken from whatever the live run happens to have accumulated,
- * so the headline gain is a property of the physics and not of how long the
+ * Daily energy is integrated analytically over the whole day rather than
+ * taken from whatever the live run happens to have accumulated, so the
+ * headline figures are a property of the physics and not of how long the
  * page has been open.
+ *
+ * Only rows whose displayed number is comparable across the three carry a
+ * "best" mark: angles, cos(theta), irradiance, and the per-square-metre
+ * figures. The absolute watt and watt-hour rows carry none, because the
+ * three mounts have genuinely different areas and the largest can lead on
+ * watts while being the worst aimed.
  */
 
 import { useMemo } from 'react';
 
-import { SOLAR_ARRAY, SITE } from '../../physics/solar/solarSpecs.js';
+import {
+  SOLAR_PANELS, SITE, FIXED_TILT, FIXED_AZIMUTH,
+} from '../../physics/solar/solarSpecs.js';
 import { sunPosition, formatHour } from '../../physics/solar/sunPosition.js';
 import { operatingPoint, trackingOrientation } from '../../physics/solar/solarPower.js';
 import { useSimulation } from '../../state/simulationStore.js';
@@ -22,123 +30,142 @@ import { T, UNITS } from '../../i18n/strings.js';
 import {
   powerString, energyString, number, percent,
 } from '../../utils/format.js';
-import { Section, Notice } from './primitives.jsx';
-import { SolarDayChart } from './SolarChart.jsx';
+import { Section, Reading, Notice } from './primitives.jsx';
+import { ThreePanelPowerChart, SpecificYieldChart } from './SolarChart.jsx';
 
-/** Integrates a whole simulated day for both panels, in watt-hours. */
-function useDailyEnergy(spec, weather, fixedTilt, fixedAzimuth) {
-  // Primitive deps only — see useDailyCurve in SolarChart.jsx.
-  const { cloudFraction, ambientC, dayOfYear } = weather;
+/** Integrates a whole simulated day for each panel, in watt-hours. */
+function useDailyEnergy(weather, manual) {
   return useMemo(() => {
-    const sky = { cloudFraction, ambientC, dayOfYear };
     const stepHours = 2 / 60;
-    let tracking = 0;
-    let fixed = 0;
+    const totals = Object.fromEntries(SOLAR_PANELS.map((p) => [p.id, 0]));
+
     for (let hour = 0; hour < 24; hour += stepHours) {
-      const pos = sunPosition(hour, SITE.latitude, dayOfYear);
+      const pos = sunPosition(hour, SITE.latitude, weather.dayOfYear);
       if (pos.altitude <= 0) continue;
       const aim = trackingOrientation(pos);
-      tracking += operatingPoint(spec, pos, aim.tilt, aim.azimuth, sky).powerAc * stepHours;
-      fixed += operatingPoint(spec, pos, fixedTilt, fixedAzimuth, sky).powerAc * stepHours;
-    }
-    return { tracking, fixed, gain: fixed > 0 ? tracking / fixed - 1 : 0 };
-  }, [spec, cloudFraction, ambientC, dayOfYear, fixedTilt, fixedAzimuth]);
-}
 
-/** A side-by-side pair of headline readouts. */
-function Versus({ fixed, tracking }) {
-  return (
-    <div className="versus">
-      <div className="versus__side" style={{ '--accent': '#1d4ed8' }}>
-        <span className="versus__label">{T.panelA}</span>
-        <span className="versus__value num">{powerString(fixed)}</span>
-      </div>
-      <div className="versus__side" style={{ '--accent': '#b45309' }}>
-        <span className="versus__label">{T.panelB}</span>
-        <span className="versus__value num">{powerString(tracking)}</span>
-      </div>
-    </div>
-  );
+      for (const spec of SOLAR_PANELS) {
+        const angles = spec.mode === 'auto' ? aim
+          : spec.mode === 'manual' ? manual
+            : { tilt: FIXED_TILT, azimuth: FIXED_AZIMUTH };
+        totals[spec.id] += operatingPoint(spec, pos, angles.tilt, angles.azimuth, weather).powerAc * stepHours;
+      }
+    }
+    return totals;
+  }, [weather, manual]);
 }
 
 export default function TrackingComparison() {
   const solar = useSimulation((s) => s.solar);
-  const spec = SOLAR_ARRAY;
-  const daily = useDailyEnergy(spec, solar.weather, solar.manual.tilt, solar.manual.azimuth);
+  const daily = useDailyEnergy(solar.weather, solar.manual);
+  const panels = solar.panels;
+
+  /** Daily energy per square metre -- the size-independent headline. */
+  const dailyYield = Object.fromEntries(
+    SOLAR_PANELS.map((p) => [p.id, daily[p.id] / p.apertureArea]),
+  );
+  const fixedYield = dailyYield.fixed || 1;
 
   const rows = [
     {
+      label: T.panelMode,
+      values: SOLAR_PANELS.map((p) => p.typeCode),
+    },
+    {
+      label: T.panelArea,
+      values: SOLAR_PANELS.map((p) => `${number(p.apertureArea, 2)} ${UNITS.squareMetre}`),
+    },
+    {
       label: T.panelTilt,
-      fixed: `${number(solar.fixed.tilt, 1)}°`,
-      tracking: `${number(solar.tracking.tilt, 1)}°`,
+      values: SOLAR_PANELS.map((p) => `${number(panels[p.id]?.tilt ?? 0, 1)}°`),
     },
     {
       label: T.panelAzimuth,
-      fixed: `${number(solar.fixed.azimuth, 1)}°`,
-      tracking: `${number(solar.tracking.azimuth, 1)}°`,
+      values: SOLAR_PANELS.map((p) => `${number(panels[p.id]?.azimuth ?? 0, 1)}°`),
     },
     {
-      label: T.incidenceAngle,
-      fixed: `${number(solar.fixed.incidenceDeg, 1)}°`,
-      tracking: `${number(solar.tracking.incidenceDeg, 1)}°`,
-      best: 'tracking',
+      label: T.alignmentAngle,
+      values: SOLAR_PANELS.map((p) => `${number(panels[p.id]?.incidenceDeg ?? 0, 1)}°`),
+      // Smallest angle wins here, so the ranking is inverted.
+      raw: SOLAR_PANELS.map((p) => -(panels[p.id]?.incidenceDeg ?? 90)),
     },
     {
       label: T.cosTheta,
-      fixed: number(solar.fixed.cosTheta, 3),
-      tracking: number(solar.tracking.cosTheta, 3),
-      raw: [solar.fixed.cosTheta, solar.tracking.cosTheta],
+      values: SOLAR_PANELS.map((p) => number(panels[p.id]?.cosTheta ?? 0, 3)),
+      raw: SOLAR_PANELS.map((p) => panels[p.id]?.cosTheta ?? 0),
     },
     {
       label: T.planeIrradiance,
-      fixed: `${number(solar.fixed.planeIrradiance, 0)} ${UNITS.irradiance}`,
-      tracking: `${number(solar.tracking.planeIrradiance, 0)} ${UNITS.irradiance}`,
-      raw: [solar.fixed.planeIrradiance, solar.tracking.planeIrradiance],
+      values: SOLAR_PANELS.map((p) => `${number(panels[p.id]?.planeIrradiance ?? 0, 0)} ${UNITS.irradiance}`),
+      raw: SOLAR_PANELS.map((p) => panels[p.id]?.planeIrradiance ?? 0),
     },
+    // Absolute figures are deliberately NOT marked with a winner.
+    //
+    // They depend on panel area as much as on aim: the manual panel is 18%
+    // larger than the tracker, so it can show more watts while being worse
+    // aimed. Highlighting a "best" absolute cell would then put the mark on
+    // 1.7 kW while 2.0 kW sat unmarked beside it, which reads as a bug
+    // rather than as the subtlety it is. The per-square-metre rows below
+    // carry the marks, because there the comparison is like for like.
     {
       label: T.powerAc,
-      fixed: powerString(solar.fixed.powerAc),
-      tracking: powerString(solar.tracking.powerAc),
-      raw: [solar.fixed.powerAc, solar.tracking.powerAc],
+      values: SOLAR_PANELS.map((p) => powerString(panels[p.id]?.powerAc ?? 0)),
     },
     {
-      label: T.capacityFactor,
-      fixed: percent(solar.fixed.capacityFactor, 0),
-      tracking: percent(solar.tracking.capacityFactor, 0),
-      raw: [solar.fixed.capacityFactor, solar.tracking.capacityFactor],
+      label: T.specificYield,
+      values: SOLAR_PANELS.map((p) => `${number(panels[p.id]?.specificYield ?? 0, 0)} W/m²`),
+      raw: SOLAR_PANELS.map((p) => panels[p.id]?.specificYield ?? 0),
     },
     {
-      label: T.cellTemperature,
-      fixed: `${number(solar.fixed.cellTemperature, 1)} ${UNITS.celsius}`,
-      tracking: `${number(solar.tracking.cellTemperature, 1)} ${UNITS.celsius}`,
+      label: T.energyGenerated,
+      values: SOLAR_PANELS.map((p) => energyString(panels[p.id]?.energyWh ?? 0)),
     },
     {
       label: T.dailyEnergy,
-      fixed: energyString(daily.fixed),
-      tracking: energyString(daily.tracking),
-      raw: [daily.fixed, daily.tracking],
+      values: SOLAR_PANELS.map((p) => energyString(daily[p.id])),
+    },
+    {
+      label: T.dailyEnergyPerArea,
+      values: SOLAR_PANELS.map((p) => `${number(dailyYield[p.id] / 1000, 3)} kWh/m²`),
+      raw: SOLAR_PANELS.map((p) => dailyYield[p.id]),
     },
   ];
 
   return (
-    <Section title={T.compareTracking} aside={formatHour(solar.timeOfDay)}>
-      <p className="prose" style={{ marginBottom: 12 }}>{T.compareTrackingIntro}</p>
+    <Section title={T.compareThree} aside={formatHour(solar.timeOfDay)}>
+      <p className="prose" style={{ marginBottom: 12 }}>{T.compareThreeIntro}</p>
 
-      <Versus fixed={solar.fixed.powerAc} tracking={solar.tracking.powerAc} />
+      <div className="versus versus--three">
+        {SOLAR_PANELS.map((spec) => (
+          <div key={spec.id} className="versus__side" style={{ '--accent': spec.accent }}>
+            <span className="versus__label">{spec.shortName.kk}</span>
+            <span className="versus__value num">{powerString(panels[spec.id]?.powerAc ?? 0)}</span>
+            <span className="versus__sub num">
+              {`${number(panels[spec.id]?.specificYield ?? 0, 0)} W/m²`}
+            </span>
+          </div>
+        ))}
+      </div>
 
-      <div className="reading" style={{ marginTop: 10 }}>
-        <span className="reading__label">
-          {T.trackingGain}
-          <span className="reading__note">{`${T.trackingGainNote} — ${T.dailyEnergy.toLowerCase()}`}</span>
-        </span>
-        <span className="reading__value num" style={{ fontWeight: 600, color: '#b45309' }}>
-          {`+${number(daily.gain * 100, 1)}`}
-          <span className="reading__unit">{UNITS.percent}</span>
-        </span>
+      <div style={{ marginTop: 12 }}>
+        <Reading
+          label={T.trackingGain}
+          value={`+${number((dailyYield.auto / fixedYield - 1) * 100, 1)}`}
+          unit={UNITS.percent}
+          note={T.trackingGainThreeNote}
+          emphasis
+        />
+        <Reading
+          label={T.manualGain}
+          value={`${dailyYield.manual >= fixedYield ? '+' : ''}${number((dailyYield.manual / fixedYield - 1) * 100, 1)}`}
+          unit={UNITS.percent}
+          note={T.manualGainNote}
+        />
       </div>
 
       <div style={{ marginTop: 16 }}>
-        <SolarDayChart />
+        <ThreePanelPowerChart />
+        <SpecificYieldChart />
       </div>
 
       <div className="table-scroll" style={{ marginTop: 18 }}>
@@ -146,32 +173,32 @@ export default function TrackingComparison() {
           <thead>
             <tr>
               <th scope="col">{T.parameter}</th>
-              <th scope="col" style={{ '--accent': '#1d4ed8' }}>
-                <span className="compare-table__head">
-                  <span>{T.panelA}</span>
-                  <span>fixed</span>
-                  <span className="compare-table__accent" />
-                </span>
-              </th>
-              <th scope="col" style={{ '--accent': '#b45309' }}>
-                <span className="compare-table__head">
-                  <span>{T.panelB}</span>
-                  <span>tracking</span>
-                  <span className="compare-table__accent" />
-                </span>
-              </th>
+              {SOLAR_PANELS.map((spec) => (
+                <th key={spec.id} scope="col" style={{ '--accent': spec.accent }}>
+                  <span className="compare-table__head">
+                    <span>{spec.shortName.kk}</span>
+                    <span>{spec.typeCode}</span>
+                    <span className="compare-table__accent" />
+                  </span>
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => {
-              const winner = row.raw
-                ? (row.raw[1] > row.raw[0] ? 'tracking' : (row.raw[0] > row.raw[1] ? 'fixed' : null))
-                : row.best ?? null;
+              const best = row.raw ? Math.max(...row.raw) : null;
               return (
                 <tr key={row.label}>
                   <th scope="row">{row.label}</th>
-                  <td className="num" data-best={winner === 'fixed'}>{row.fixed}</td>
-                  <td className="num" data-best={winner === 'tracking'}>{row.tracking}</td>
+                  {row.values.map((value, i) => (
+                    <td
+                      key={SOLAR_PANELS[i].id}
+                      className="num"
+                      data-best={best != null && row.raw[i] === best && best !== 0}
+                    >
+                      {value}
+                    </td>
+                  ))}
                 </tr>
               );
             })}
@@ -179,8 +206,13 @@ export default function TrackingComparison() {
         </table>
       </div>
 
+      <p className="chain__note" style={{ marginTop: 8 }}>{T.absoluteNotMarked}</p>
+
       <div style={{ marginTop: 12 }}>
-        <Notice>{T.solarModelNotice}</Notice>
+        <Notice>{T.specificYieldNotice}</Notice>
+      </div>
+      <div style={{ marginTop: 10 }}>
+        <Notice signal>{T.solarModelNotice}</Notice>
       </div>
     </Section>
   );

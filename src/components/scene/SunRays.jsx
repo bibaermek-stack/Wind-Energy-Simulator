@@ -18,7 +18,7 @@ import * as THREE from 'three';
 
 import { solarEngine } from '../../physics/solar/SolarEngine.js';
 import { sunVector } from '../../physics/solar/sunPosition.js';
-import { SOLAR_ARRAY } from '../../physics/solar/solarSpecs.js';
+import { SOLAR_VIEW } from '../../physics/solar/solarSpecs.js';
 
 /**
  * Ray count.
@@ -28,15 +28,22 @@ import { SOLAR_ARRAY } from '../../physics/solar/solarSpecs.js';
  * actually see the angle the beam makes with the panel, which is the only
  * reason this component exists.
  */
-const COUNT = 26;
+const COUNT = 44;
 
 /** Length of the beam segment drawn, in metres. */
 const RAY_LENGTH = 14;
 
 /** Radius of the bundle around the array, in metres. */
-const BUNDLE_RADIUS = 2.6;
+/**
+ * Radius of the bundle, in metres.
+ *
+ * Wide enough to cover the row of three panels and no wider: spread
+ * further the rays scatter across empty grass and start reading as
+ * weather rather than as a beam striking the panels.
+ */
+const BUNDLE_RADIUS = 9;
 
-export default function SunRays({ visible = true, spec = SOLAR_ARRAY }) {
+export default function SunRays({ visible = true }) {
   const meshRef = useRef();
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const up = useMemo(() => new THREE.Vector3(0, 1, 0), []);
@@ -109,9 +116,9 @@ export default function SunRays({ visible = true, spec = SOLAR_ARRAY }) {
     if (!mesh || !visible) return;
 
     const sun = solarEngine.sun;
-    const panel = solarEngine.activePanel;
+    const panel = solarEngine.panels.auto;
 
-    if (sun.altitude <= 0 || !panel) {
+    if (sun.altitude <= 0 || !panel?.point) {
       mesh.visible = false;
       return;
     }
@@ -122,8 +129,8 @@ export default function SunRays({ visible = true, spec = SOLAR_ARRAY }) {
 
     // Brightness carries the physics: strong beam and square incidence make
     // bright rays; a grazing angle or a cloudy sky makes faint ones.
-    const cosTheta = panel.cosTheta ?? 0;
-    const beamStrength = Math.min((panel.beamIrradiance ?? 0) / 900, 1);
+    const cosTheta = panel.point.cosTheta ?? 0;
+    const beamStrength = Math.min((panel.point.beamIrradiance ?? 0) / 900, 1);
     material.opacity = 0.03 + 0.10 * beamStrength * (0.25 + 0.75 * cosTheta);
 
     // Orient one ray: its local +Y must lie along the sun direction.
@@ -133,8 +140,9 @@ export default function SunRays({ visible = true, spec = SOLAR_ARRAY }) {
     const sideA = new THREE.Vector3(1, 0, 0).applyQuaternion(quaternion);
     const sideB = new THREE.Vector3(0, 0, 1).applyQuaternion(quaternion);
 
-    target.set(...spec.scene.position);
-    target.y += spec.scene.labelHeight * 0.42;
+    // Aimed at the middle of the three panels, so the bundle covers the
+    // whole installation rather than favouring one of them.
+    target.set(...SOLAR_VIEW.target);
 
     const travel = (state.clock.elapsedTime * 0.35) % 1;
 

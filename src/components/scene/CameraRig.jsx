@@ -18,7 +18,7 @@ import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 
 import { TURBINE_BY_ID, TURBINES } from '../../physics/turbineSpecs.js';
-import { SOLAR_ARRAY } from '../../physics/solar/solarSpecs.js';
+import { SOLAR_VIEW } from '../../physics/solar/solarSpecs.js';
 import { useSimulation } from '../../state/simulationStore.js';
 
 const FLIGHT_DURATION = 1.5; // seconds
@@ -60,13 +60,13 @@ function overviewFraming() {
   };
 }
 
-/** Framing for the solar array: close in, at a person's-eye angle. */
+/** Framing that holds all three panels, at a person's-eye angle. */
 function solarFraming() {
-  const [px, , pz] = SOLAR_ARRAY.scene.position;
-  const [ox, oy, oz] = SOLAR_ARRAY.scene.cameraOffset;
+  const [tx, ty, tz] = SOLAR_VIEW.target;
+  const [ox, oy, oz] = SOLAR_VIEW.cameraOffset;
   return {
-    position: new THREE.Vector3(px + ox, oy, pz + oz),
-    target: new THREE.Vector3(px, SOLAR_ARRAY.scene.labelHeight * 0.45, pz),
+    position: new THREE.Vector3(tx + ox, oy, tz + oz),
+    target: new THREE.Vector3(tx, ty, tz),
   };
 }
 
@@ -76,10 +76,10 @@ function solarFraming() {
  * is necessarily a wide shot -- which is itself the point being made.
  */
 function hybridFraming() {
-  const [sx, , sz] = SOLAR_ARRAY.scene.position;
+  const [sx, , sz] = SOLAR_VIEW.target;
   return {
-    position: new THREE.Vector3(sx + 78, 62, sz + 150),
-    target: new THREE.Vector3((sx - 20) / 2, 26, (sz + 6) / 2),
+    position: new THREE.Vector3(sx + 74, 62, sz + 150),
+    target: new THREE.Vector3((sx - 30) / 2, 26, (sz + 6) / 2),
   };
 }
 

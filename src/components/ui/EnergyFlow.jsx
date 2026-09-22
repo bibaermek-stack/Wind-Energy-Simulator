@@ -15,7 +15,7 @@
  * The animation is suppressed entirely under prefers-reduced-motion.
  */
 
-import { SOLAR_ARRAY } from '../../physics/solar/solarSpecs.js';
+import { SOLAR_PANELS, TOTAL_RATED_POWER } from '../../physics/solar/solarSpecs.js';
 import { TURBINES } from '../../physics/turbineSpecs.js';
 import { modeOf } from '../../modes/energyModes.js';
 import {
@@ -60,13 +60,18 @@ function Arrow({ intensity = 0, accent }) {
 }
 
 function SolarChain() {
-  const panel = useSimulation(selectSolarPanel);
   const solar = useSimulation((s) => s.solar);
-  const spec = SOLAR_ARRAY;
+  const panel = useSimulation(selectSolarPanel);
   if (!panel) return null;
 
-  const intensity = Math.min(panel.powerAc / spec.ratedPower, 1);
-  const accent = spec.accent;
+  // The chain speaks for the whole installation: the stage figures are the
+  // sum across all three panels, because that is what actually reaches the
+  // inverter and the grid.
+  const totalDc = SOLAR_PANELS.reduce((sum, p) => sum + (solar.panels[p.id]?.powerDc ?? 0), 0);
+  const totalIrradiance = panel.planeIrradiance;
+  const intensity = Math.min(solar.totalPower / TOTAL_RATED_POWER, 1);
+  const accent = '#b45309';
+  const spec = SOLAR_PANELS[0];
 
   return (
     <div className="flow-chain">
@@ -80,15 +85,15 @@ function SolarChain() {
       <Arrow intensity={Math.min(panel.planeIrradiance / 1000, 1)} accent={accent} />
       <Node
         label={T.flowPanel}
-        value={`${number(panel.planeIrradiance, 0)} ${UNITS.irradiance}`}
-        note={`${T.cosTheta} = ${number(panel.cosTheta, 3)}`}
+        value={`${number(totalIrradiance, 0)} ${UNITS.irradiance}`}
+        note={`${T.threePanels} · θ = ${number(panel.incidenceDeg, 1)}°`}
         accent={accent}
         intensity={intensity}
       />
       <Arrow intensity={intensity} accent={accent} />
       <Node
         label={T.flowCells}
-        value={powerString(panel.powerDc)}
+        value={powerString(totalDc)}
         note={`DC · η = ${percent(spec.efficiency, 0)}`}
         accent={accent}
         intensity={intensity}
@@ -96,7 +101,7 @@ function SolarChain() {
       <Arrow intensity={intensity} accent={accent} />
       <Node
         label={T.flowInverter}
-        value={powerString(panel.powerAc)}
+        value={powerString(solar.totalPower)}
         note={`AC · η = ${percent(spec.inverterEfficiency, 0)}`}
         accent={accent}
         intensity={intensity}

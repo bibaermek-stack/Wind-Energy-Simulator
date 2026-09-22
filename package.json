@@ -10,7 +10,7 @@
     "preview": "node ./node_modules/vite/bin/vite.js preview",
     "models:small": "node scripts/generate-small-turbine.mjs",
     "models:optimize": "node scripts/optimize-models.mjs",
-    "models:solar": "node scripts/segment-solar.mjs --extract 1",
+    "models:solar": "node scripts/segment-solar.mjs --extract 1 --out public/models/solar-auto.glb && node scripts/segment-solar.mjs --extract 2 --out public/models/solar-manual.glb && node scripts/segment-solar.mjs --extract 4 --out public/models/solar-fixed.glb",
     "models": "npm run models:optimize && npm run models:small && npm run models:solar",
     "verify:physics": "node scripts/verify-physics.mjs",
     "verify:solar": "node scripts/verify-solar.mjs",

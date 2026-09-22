@@ -1018,3 +1018,120 @@
 @media (max-width: 1040px) {
   .mode-switch__sub { display: none; }
 }
+
+/* ==========================================================================
+   Panel heading — the coloured strip that opens each solar panel's section
+   ========================================================================== */
+
+.panel-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  margin-bottom: 10px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: color-mix(in srgb, var(--accent) 6%, white);
+}
+
+.panel-heading__name { font-size: var(--t-small); font-weight: 600; color: var(--ink); }
+
+.panel-heading__power {
+  font-size: var(--t-base);
+  font-weight: 500;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   Panel cards — the three side-by-side readouts in the dashboard
+   ========================================================================== */
+
+.panel-cards { display: flex; flex-direction: column; gap: 8px; }
+
+.panel-card {
+  padding: 9px 11px;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--paper);
+}
+
+.panel-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.panel-card__name { font-size: var(--t-small); font-weight: 600; }
+
+.panel-card__mode {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.panel-card__power {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-bottom: 4px;
+}
+
+.panel-card__value {
+  font-size: var(--t-title);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.panel-card__unit { font-size: var(--t-small); color: var(--ink-soft); }
+
+/* A bar showing this panel's specific yield against the best of the three,
+   so the comparison is visible without reading the numbers. */
+.panel-card__bar {
+  height: 4px;
+  margin: 6px 0 5px;
+  border-radius: 2px;
+  background: var(--field-sunken);
+  overflow: hidden;
+}
+
+.panel-card__fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.panel-card__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 10px;
+  color: var(--ink-soft);
+}
+
+.panel-card__row b { font-weight: 500; color: var(--ink-medium); }
+
+/* Three-up variant of the headline comparison block. */
+.versus--three { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+
+.versus--three .versus__side { padding: 8px 9px; }
+
+.versus--three .versus__value { font-size: var(--t-lead); }
+
+.versus__sub {
+  display: block;
+  margin-top: 1px;
+  font-size: 10px;
+  color: var(--ink-soft);
+}
+
+@media (max-width: 1040px) {
+  .versus--three { grid-template-columns: 1fr; }
+}

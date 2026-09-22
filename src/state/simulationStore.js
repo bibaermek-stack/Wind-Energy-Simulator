@@ -76,8 +76,8 @@ export const useSimulation = create((set, get) => ({
   },
   solarTimeScale: 1,
 
-  setTracking: (value) => {
-    solarEngine.setTracking(value);
+  setAutoTracking: (value) => {
+    solarEngine.setAutoTracking(value);
     set({ solar: solarEngine.snapshot() });
   },
 
@@ -163,10 +163,17 @@ solarEngine.subscribe((snapshot) => {
 /** Convenience selector: telemetry for the turbine currently selected. */
 export const selectActiveTelemetry = (state) => state.telemetry.turbines[state.selectedId];
 
-/** Telemetry for whichever solar panel the tracking switch selects. */
-export const selectSolarPanel = (state) => (
-  state.solar.trackingEnabled ? state.solar.tracking : state.solar.fixed
-);
+/** Telemetry for one solar panel by id. */
+export const selectPanel = (id) => (state) => state.solar.panels[id];
+
+/**
+ * The panel the single-figure readouts speak for.
+ *
+ * Panel 1 is the headline: it is the one whose behaviour the module is
+ * about. The other two are always visible beside it in the dashboard and
+ * the comparison table, so nothing is hidden by this choice.
+ */
+export const selectSolarPanel = (state) => state.solar.panels.auto;
 
 /**
  * Power selectors.
@@ -185,7 +192,7 @@ export const selectWindPower = (state) => (
 );
 
 export const selectSolarPower = (state) => (
-  modeOf(state.mode).hasSolar ? (selectSolarPanel(state)?.powerAc ?? 0) : 0
+  modeOf(state.mode).hasSolar ? state.solar.totalPower : 0
 );
 
 /** Accumulated energy, watt-hours, for whichever sources the mode contains. */
@@ -196,5 +203,5 @@ export const selectWindEnergy = (state) => (
 );
 
 export const selectSolarEnergy = (state) => (
-  modeOf(state.mode).hasSolar ? (selectSolarPanel(state)?.energyWh ?? 0) : 0
+  modeOf(state.mode).hasSolar ? state.solar.totalEnergy : 0
 );

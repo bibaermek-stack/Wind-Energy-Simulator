@@ -2,10 +2,11 @@
 
 An interactive 3D renewable-energy laboratory for university physics teaching.
 Three wind turbines of different types stand in one landscape at true relative
-scale, and a two-axis solar tracker — cut from the supplied catalogue model —
-shares the same site. A mode switch at the top of the app selects **wind**,
-**solar**, or **hybrid**; the wind simulation is exactly the one that existed
-before the solar work, and hybrid simply runs both at once.
+scale, and three solar panels — cut from the supplied catalogue model — share
+the same site, differing only in how their orientation is decided: one tracks
+the sun, one follows your sliders, one never moves. A mode switch at the top
+selects **wind**, **solar**, or **hybrid**; the wind simulation is exactly the
+one that existed before the solar work, and hybrid runs everything at once.
 
 Interface language is Kazakh, with the standard scientific vocabulary left in
 English (HAWT, VAWT, Cp, RPM, m/s, kW, Betz, PV, DNI) so the readouts map
@@ -115,18 +116,45 @@ stay physically plausible.
 
 ---
 
-## Solar mode
+## Solar mode — three panels
 
 The solar side is an addition, not a rewrite. The wind code is untouched; a
-mode layer sits above it. Switching to **Күн** hides the turbines and frames
-the array; **Гибрид** shows both at true scale.
+mode layer sits above it. Switching to **Күн** frames three solar panels;
+**Гибрид** shows them alongside the turbines.
 
-### The model
+The three differ in exactly one thing: **how their orientation is decided.**
 
-`solar pahels.glb` is a manufacturer's catalogue — ~18 mounting products on
-one plot, 65 MB, no hierarchy, geometry batched by material. It cannot be
-re-parented the way the HAWT rotor was. `scripts/segment-solar.mjs` rebuilds
-assembly #1 from the triangles up:
+| | Panel | Control | Mount | Aperture |
+|---|---|---|---|---|
+| 1 | **AUTO** | two-axis tracker, follows the sun; switchable off | braced rack | 13.09 m² |
+| 2 | **MANUAL** | your tilt/azimuth sliders | pedestal array | 15.43 m² |
+| 3 | **FIXED** | bolted at 35° / 180°, never moves | low ground row | 9.61 m² |
+
+All three are integrated every frame from one sun, one sky, one set of
+weather inputs, and each keeps its own energy meter. Switching AUTO
+TRACKING off **freezes** Panel 1 where it stands and lets the sun move on —
+you watch the alignment angle open up, which is what a stalled tracker
+costs.
+
+### Why the dashboard shows W/m²
+
+The three mounts are three different products from the supplied catalogue,
+so they have genuinely different collecting areas. That makes raw watts an
+unfair comparison: at solar noon the manual panel reads **2.3 kW against
+the tracker's 2.0 kW** purely because it is 18 % larger, while per square
+metre the tracker is ahead (154 vs 150 W/m²).
+
+So every readout carries both figures, and the comparison table marks a
+"best" cell only on rows whose number is comparable — angles, cos θ,
+irradiance and the per-m² figures. The absolute watt and watt-hour rows
+carry no mark at all, deliberately.
+
+### The models
+
+`solar pahels.glb` is a manufacturer's catalogue — ~18 mounting products
+on one plot, 65 MB, no hierarchy, geometry batched by material. It cannot
+be re-parented the way the HAWT rotor was.
+`scripts/segment-solar.mjs` rebuilds three assemblies from the triangles up:
 
 ```
 SolarPanelRoot                 azimuth, rotates about Y
@@ -136,10 +164,14 @@ SolarPanelRoot                 azimuth, rotates about Y
     SolarPanelFrame            rails and clamps
 ```
 
-Aperture **13.09 m²**, measured by projecting module faces onto the array
-plane (triangle-area sums double-count coincident faces). Example operating
-parameters (20 % efficient, 2.6 kW class) are labelled as such in the UI —
-the model arrived without a datasheet.
+Aperture is measured by projecting module faces onto the array plane and
+counting covered cells — a sum of triangle areas double-counts the
+coincident layers these models are built from. That measurement doubles as
+a **quality check on the segmentation**: assemblies #3 and #6 measured
+11.56 m² against a 17.51 m² bounding box and 3.33 against 6.74, and both
+turned out on inspection to be broken clusters that had swept in stray
+posts. The three shipped assemblies agree with their bounding boxes to
+99 %, 95 % and 89 %.
 
 ### Scientific model
 
@@ -154,19 +186,22 @@ sun position  →  panel orientation  →  incidence angle θ
 P = G · A · η · cos θ · [1 + γ(T_cell − 25)] · η_inv · soiling
 ```
 
-`cos θ` is clamped at 0. Below the horizon, P = 0. Cloud cover attenuates
-the *total* resource first and then splits what remains into beam and
-diffuse, so more cloud is always less energy. Two panels are integrated off
-one set of inputs — one fixed, one tracking — so the comparison tab is
-like-for-like.
+`cos θ` is clamped at 0. Below the horizon, P = 0. Cloud attenuates the
+*total* resource first and then splits what remains into beam and diffuse,
+so more cloud is always less energy.
 
 The site is Astana (51.1°N) on the March equinox, so the time slider
-06:00–18:00 is one complete solar day. Tracking gain at those conditions is
-**+32.4 %** over a 35°/180° fixed array.
+06:00–18:00 is one complete solar day. Tracking gain is **+32.4 %** per m²
+over the fixed array.
 
 ```
 npm run verify:solar
 ```
+
+asserts, at every hour: the tracker is square to the sun (θ < 0.01°),
+neither other panel can out-yield it per m², the fixed panel never moves,
+none exceeds its rating, and each rating follows from its own measured
+aperture.
 
 ---
 
@@ -223,7 +258,7 @@ lists what *is* in the file.
 ```
 npm run models:optimize   # compress the two supplied wind models
 npm run models:small      # generate the third turbine
-npm run models:solar      # extract the tracker from the catalogue
+npm run models:solar      # extract the three panels from the catalogue
 ```
 
 `scripts/optimize-models.mjs` reads untouched copies from `models-source/` and
@@ -239,7 +274,9 @@ does the job:
 HAWT   28.64 MB -> 0.81 MB   (332,180 triangles, geometry unchanged)
 VAWT    0.30 MB -> 0.09 MB   (  3,308 triangles, geometry unchanged)
 small       n/a -> 0.08 MB   (  5,308 triangles, generated)
-solar  65.65 MB -> 0.35 MB   (assembly #1 of 14, hierarchy rebuilt)
+solar  65.65 MB -> 0.36 MB   (assembly #1 -> AUTO,   hierarchy rebuilt)
+              -> 0.45 MB   (assembly #2 -> MANUAL, hierarchy rebuilt)
+              -> 0.28 MB   (assembly #4 -> FIXED,  hierarchy rebuilt)
 ```
 
 The Draco decoder is served from `public/draco/`, so the app needs no CDN.

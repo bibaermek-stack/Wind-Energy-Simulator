@@ -6,7 +6,7 @@
  * agreement with the model on screen.
  */
 
-import { SOLAR_ARRAY, SITE, STC_IRRADIANCE } from '../../physics/solar/solarSpecs.js';
+import { SOLAR_PANELS, PANEL_BY_ID, SITE, STC_IRRADIANCE } from '../../physics/solar/solarSpecs.js';
 import { formatHour } from '../../physics/solar/sunPosition.js';
 import { useSimulation, selectSolarPanel } from '../../state/simulationStore.js';
 import { T, UNITS } from '../../i18n/strings.js';
@@ -43,7 +43,10 @@ function Formula({ expression, terms }) {
 export default function SolarTheory() {
   const solar = useSimulation((s) => s.solar);
   const panel = useSimulation(selectSolarPanel);
-  const spec = SOLAR_ARRAY;
+  // The theory text is written about Panel 1, the tracker: it is the one
+  // whose behaviour the physics section explains. The other two appear in
+  // the tracking block below, where the comparison is the point.
+  const spec = PANEL_BY_ID.auto;
 
   if (!panel) return null;
 
@@ -115,17 +118,18 @@ export default function SolarTheory() {
       <Block title={T.theoryTrackingTitle}>
         <p>{T.theoryTrackingBody}</p>
         <div style={{ marginTop: 10 }}>
-          <Reading
-            label={T.legendFixed}
-            value={powerString(solar.fixed.powerAc)}
-            note={`cos θ = ${number(solar.fixed.cosTheta, 3)}`}
-          />
-          <Reading
-            label={T.legendTracking}
-            value={powerString(solar.tracking.powerAc)}
-            note={`cos θ = ${number(solar.tracking.cosTheta, 3)}`}
-            emphasis
-          />
+          {SOLAR_PANELS.map((p) => {
+            const live = solar.panels[p.id];
+            return (
+              <Reading
+                key={p.id}
+                label={p.shortName.kk}
+                value={`${number(live?.specificYield ?? 0, 0)} W/m²`}
+                note={`θ = ${number(live?.incidenceDeg ?? 0, 1)}°  ·  cos θ = ${number(live?.cosTheta ?? 0, 3)}`}
+                emphasis={p.mode === 'auto'}
+              />
+            );
+          })}
         </div>
       </Block>
 

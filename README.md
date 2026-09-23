@@ -124,11 +124,11 @@ mode layer sits above it. Switching to **Күн** frames three solar panels;
 
 The three differ in exactly one thing: **how their orientation is decided.**
 
-| | Panel | Control | Mount | Aperture |
+| | Panel | Control | Mount | Array |
 |---|---|---|---|---|
-| 1 | **AUTO** | two-axis tracker, follows the sun; switchable off | pole, concrete footing | 6.54 m² |
-| 2 | **MANUAL** | your tilt/azimuth sliders | wide array on legs | 13.09 m² |
-| 3 | **FIXED** | bolted at 35° / 180°, never moves | low ground row | 9.61 m² |
+| 1 | **AUTO** | two-axis tracker, follows the sun; switchable off | pole, concrete footing | 8 modules, 13.09 m² |
+| 2 | **MANUAL** | your tilt/azimuth sliders | front-hinge rack, telescopic arms | 8 modules, 13.09 m² |
+| 3 | **FIXED** | bolted at 35° / 180°, never moves | catalogue ground frame | 8 modules, 13.09 m² |
 
 All three are integrated every frame from one sun, one sky, one set of
 weather inputs, and each keeps its own energy meter. Switching AUTO
@@ -151,19 +151,12 @@ about its own axis, so that turning the model in azimuth leaves the footing
 looking exactly as it did — the base reads as planted while the array
 swings above it.
 
-### Why the dashboard shows W/m²
+### Same glass, different aim
 
-The three mounts are three different products from the supplied catalogue,
-so they have genuinely different collecting areas — 6.54, 13.09 and
-9.61 m². That makes raw watts an unfair comparison: at solar noon the
-manual panel reads **2.0 kW against the tracker's 1.0 kW** purely because
-it is twice the size, while per square metre the tracker is ahead
-(154 vs 150 W/m²).
-
-So every readout carries both figures, and the comparison table marks a
-"best" cell only on rows whose number is comparable — angles, cos θ,
-irradiance and the per-m² figures. The absolute watt and watt-hour rows
-carry no mark at all, deliberately.
+All three carry assembly #1 from the catalogue: **eight modules, 13.09 m²**.
+The mounts differ; the collecting area does not. A watt on the dashboard
+is therefore a fair comparison of orientation, not of size. Specific
+yield (W/m²) is the same number per square metre of glass.
 
 ### The models
 
@@ -198,8 +191,8 @@ coincident layers these models are built from. That measurement doubles as
 a **quality check on the segmentation**: assemblies #3 and #6 measured
 11.56 m² against a 17.51 m² bounding box and 3.33 against 6.74, and both
 turned out on inspection to be broken clusters that had swept in stray
-posts. The three shipped assemblies agree with their bounding boxes to
-99 %, 95 % and 89 %.
+posts. Assembly #1, used for all three panels, measures 13.09 m² against
+13.18 m² by hand: 99.3 % agreement.
 
 ### Scientific model
 
@@ -303,9 +296,8 @@ does the job:
 HAWT   28.64 MB -> 0.81 MB   (332,180 triangles, geometry unchanged)
 VAWT    0.30 MB -> 0.09 MB   (  3,308 triangles, geometry unchanged)
 small       n/a -> 0.08 MB   (  5,308 triangles, generated)
-solar  65.65 MB -> 0.36 MB   (assembly #1 -> AUTO,   hierarchy rebuilt)
-              -> 0.45 MB   (assembly #2 -> MANUAL, hierarchy rebuilt)
-              -> 0.28 MB   (assembly #4 -> FIXED,  hierarchy rebuilt)
+solar  65.65 MB -> AUTO/MANUAL/FIXED from assembly #1
+                   (8 modules, 13.09 m²; only the mounts differ)
 ```
 
 The Draco decoder is served from `public/draco/`, so the app needs no CDN.

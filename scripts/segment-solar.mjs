@@ -423,6 +423,245 @@ function normalise(v) {
   return v.map((c) => c / len);
 }
 
+/**
+ * A sheet just behind the cells, filling the gaps between modules.
+ *
+ * The catalogue models each module as a separate solid, so the 2x4 array
+ * has real slots of grass showing through. From the teaching camera that
+ * reads as a transparent panel. One quad in the array plane, 2 inches
+ * behind the collecting faces, closes those slots without covering the
+ * cell grid.
+ */
+function panelBackingTriangles(assembly, planeOffset) {
+  const n = normalise(assembly.normal);
+  const min = assembly.panelMin;
+  const max = assembly.panelMax;
+  const centre = [0, 1, 2].map((k) => (min[k] + max[k]) / 2);
+  const back = centre.map((c, k) => c + n[k] * planeOffset);
+  const helper = Math.abs(n[0]) < 0.9 ? [1, 0, 0] : [0, 0, 1];
+  const u = normalise(cross(n, helper));
+  const v = normalise(cross(u, n));
+  let umin = 1e9;
+  let umax = -1e9;
+  let vmin = 1e9;
+  let vmax = -1e9;
+  for (const x of [min[0], max[0]]) {
+    for (const y of [min[1], max[1]]) {
+      for (const z of [min[2], max[2]]) {
+        const d = [x - back[0], y - back[1], z - back[2]];
+        const uu = d[0] * u[0] + d[1] * u[1] + d[2] * u[2];
+        const vv = d[0] * v[0] + d[1] * v[1] + d[2] * v[2];
+        umin = Math.min(umin, uu);
+        umax = Math.max(umax, uu);
+        vmin = Math.min(vmin, vv);
+        vmax = Math.max(vmax, vv);
+      }
+    }
+  }
+  const at = (uu, vv) => [
+    back[0] + u[0] * uu + v[0] * vv,
+    back[1] + u[1] * uu + v[1] * vv,
+    back[2] + u[2] * uu + v[2] * vv,
+  ];
+  const c00 = at(umin, vmin);
+  const c10 = at(umax, vmin);
+  const c11 = at(umax, vmax);
+  const c01 = at(umin, vmax);
+  const tri = (p0, p1, p2) => {
+    const nn = normalise(cross(
+      [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]],
+      [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]],
+    ));
+    const flip = nn[0] * n[0] + nn[1] * n[1] + nn[2] * n[2] < 0;
+    const pts = flip ? [p0, p2, p1] : [p0, p1, p2];
+    const nf = flip ? nn.map((x) => -x) : nn;
+    return {
+      p: pts,
+      n: [nf, nf, nf],
+      uv: [[0, 0], [1, 0], [0, 1]],
+      material: 'GeneratedBacking',
+      isPanel: true,
+      isProp: false,
+    };
+  };
+  return [tri(c00, c10, c11), tri(c00, c11, c01)];
+}
+
+/**
+ * One triangle per patch of the array: the one closest to the sun.
+ * Later, buildNode flattens whatever is left onto a single plane, so the
+ * panel is thin from the side and complete from the front.
+ */
+/**
+ * A flat 2×4 module face with a 10×6 cell grid.
+ *
+ * Coordinates are inches in the flattened pivot frame. `tiltBack` and
+ * `pivot` turn them into the world-inch space the rest of the triangles
+ * use, so un-tilting puts the glass back where the catalogue array sat.
+ */
+function generatedGlass(flat, tiltBack, pivot) {
+  const x0 = flat.minX;
+  const x1 = flat.maxX;
+  const z0 = flat.minZ;
+  const z1 = flat.maxZ;
+  // Eight modules, two rows of four. Each module is portrait: the long
+  // side runs in Z, so a 60-cell plate is 6 across and 10 along.
+  const cols = 4;
+  const rows = 2;
+  const cellC = 6;
+  const cellR = 10;
+  const moduleGap = 2.2;
+  const cellGap = 0.62;
+  const margin = 1.4;
+  const spanX = (x1 - x0) - margin * 2;
+  const spanZ = (z1 - z0) - margin * 2;
+  const modW = (spanX - moduleGap * (cols - 1)) / cols;
+  const modD = (spanZ - moduleGap * (rows - 1)) / rows;
+  const yGlass = 0.55;
+  const yFrame = 0.15;
+  const yLine = 0.78;
+  const border = 0.7;
+  const cw = (modW - cellGap * (cellC - 1)) / cellC;
+  const cd = (modD - cellGap * (cellR - 1)) / cellR;
+  if (!(cw > 1 && cd > 1)) {
+    throw new Error(`cell size collapsed: ${cw.toFixed(2)} x ${cd.toFixed(2)} in`);
+  }
+
+  const nn = tiltBack([0, 1, 0]);
+  const toWorld = (x, y, z) => {
+    const spun = tiltBack([x, y, z]);
+    return [spun[0] + pivot[0], spun[1] + pivot[1], spun[2] + pivot[2]];
+  };
+  const quad = (p00, p10, p11, p01) => {
+    const tri = (p0, p1, p2) => ({
+      p: [p0, p1, p2],
+      n: [nn, nn, nn],
+      uv: [[0, 0], [1, 0], [0, 1]],
+      material: 'GeneratedCell',
+      isPanel: true,
+      isProp: false,
+    });
+    // p00, p01, p11 is CCW when viewed from +Y, so the face points up.
+    return [
+      tri(p00, p01, p11),
+      tri(p00, p11, p10),
+    ];
+  };
+  const rect = (xA, zA, xB, zB, y) => quad(
+    toWorld(xA, y, zA),
+    toWorld(xB, y, zA),
+    toWorld(xB, y, zB),
+    toWorld(xA, y, zB),
+  );
+
+  const cells = [];
+  const frames = [];
+  const lines = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const mx = x0 + margin + c * (modW + moduleGap);
+      const mz = z0 + margin + r * (modD + moduleGap);
+      const xR = mx + modW;
+      const zR = mz + modD;
+      // Aluminium rim only. A solid plate here would show through the
+      // cell gaps and hide the light grid.
+      frames.push(
+        ...rect(mx - border, mz - border, xR + border, mz, yFrame),
+        ...rect(mx - border, zR, xR + border, zR + border, yFrame),
+        ...rect(mx - border, mz, mx, zR, yFrame),
+        ...rect(xR, mz, xR + border, zR, yFrame),
+      );
+      for (let i = 0; i < cellR; i++) {
+        for (let j = 0; j < cellC; j++) {
+          const cx = mx + j * (cw + cellGap);
+          const cz = mz + i * (cd + cellGap);
+          cells.push(...rect(cx, cz, cx + cw, cz + cd, yGlass));
+        }
+      }
+      // Light gaps. Horizontal strips span the module, including the
+      // crossings; vertical strips stop at each cell so the two sets
+      // share an edge and do not z-fight.
+      for (let i = 0; i < cellR - 1; i++) {
+        const gz = mz + (i + 1) * cd + i * cellGap;
+        lines.push(...rect(mx, gz, xR, gz + cellGap, yLine));
+      }
+      for (let j = 0; j < cellC - 1; j++) {
+        const gx = mx + (j + 1) * cw + j * cellGap;
+        for (let i = 0; i < cellR; i++) {
+          const cz = mz + i * (cd + cellGap);
+          lines.push(...rect(gx, cz, gx + cellGap, cz + cd, yLine));
+        }
+      }
+    }
+  }
+
+  const yBack = -0.35;
+  const backing = rect(x0, z0, x1, z1, yBack);
+  console.error(
+    `[glass] cell ${(cw * INCH * 100).toFixed(1)}×${(cd * INCH * 100).toFixed(1)} cm, `
+    + `gap ${(cellGap * INCH * 100).toFixed(1)} cm, `
+    + `tris cells ${cells.length} lines ${lines.length} frame ${frames.length}`,
+  );
+  return { cells, backing, frames, lines };
+}
+
+function selectFrontSkin(tris, assembly) {
+  const n = normalise(assembly.normal);
+  const centre = [0, 1, 2].map((k) => (assembly.panelMin[k] + assembly.panelMax[k]) / 2);
+  const helper = Math.abs(n[0]) < 0.9 ? [1, 0, 0] : [0, 0, 1];
+  const u = normalise(cross(n, helper));
+  const v = normalise(cross(u, n));
+  const cell = 4;
+
+  const project = (p) => {
+    const d = [p[0] - centre[0], p[1] - centre[1], p[2] - centre[2]];
+    return [
+      d[0] * u[0] + d[1] * u[1] + d[2] * u[2],
+      d[0] * v[0] + d[1] * v[1] + d[2] * v[2],
+    ];
+  };
+  const inside = (p, a, b, c) => {
+    const sign = (p0, p1, p2) => (p0[0] - p2[0]) * (p1[1] - p2[1]) - (p1[0] - p2[0]) * (p0[1] - p2[1]);
+    const d1 = sign(p, a, b);
+    const d2 = sign(p, b, c);
+    const d3 = sign(p, c, a);
+    const hasNeg = d1 < 0 || d2 < 0 || d3 < 0;
+    const hasPos = d1 > 0 || d2 > 0 || d3 > 0;
+    return !(hasNeg && hasPos);
+  };
+
+  const ranked = tris.map((t) => ({
+    t,
+    uv: t.p.map(project),
+    off: t.planeOffset ?? 0,
+  })).sort((a, b) => b.off - a.off);
+
+  const mask = new Set();
+  const kept = [];
+  for (const item of ranked) {
+    const [a, b, c] = item.uv;
+    const minU = Math.min(a[0], b[0], c[0]);
+    const maxU = Math.max(a[0], b[0], c[0]);
+    const minV = Math.min(a[1], b[1], c[1]);
+    const maxV = Math.max(a[1], b[1], c[1]);
+    let fresh = false;
+    const hits = [];
+    for (let iu = Math.floor(minU / cell); iu <= Math.floor(maxU / cell); iu++) {
+      for (let iv = Math.floor(minV / cell); iv <= Math.floor(maxV / cell); iv++) {
+        const p = [(iu + 0.5) * cell, (iv + 0.5) * cell];
+        if (!inside(p, a, b, c)) continue;
+        const key = `${iu},${iv}`;
+        hits.push(key);
+        if (!mask.has(key)) fresh = true;
+      }
+    }
+    if (!fresh) continue;
+    kept.push(item.t);
+    for (const key of hits) mask.add(key);
+  }
+  return kept;
+}
+
 // ---------------------------------------------------------------------------
 // generated pole mount
 // ---------------------------------------------------------------------------
@@ -474,21 +713,47 @@ const MAST = {
   /**
    * How far the elevation yoke reaches above and below the pivot, m.
    *
-   * Asymmetric on purpose. The pivot is the plane the modules rotate
-   * about, and the modules themselves sit a few centimetres above it, so a
-   * yoke centred on the pivot pushes its cheek plates and its torque tube
-   * up through the laminate -- they appear as grey blocks lying on top of
-   * the glass. Nearly all of it therefore hangs below, which is also where
-   * the hardware is on a real tracker.
+   * The cheek plates reach UP to the back of the modules (arrayStandoff)
+   * and hang below the torque tube. They must stop short of the laminate
+   * or they read as grey blocks on the glass.
    */
-  yokeRise: 0.02,
+  yokeRise: 0.42,
   yokeDrop: 0.33,
   torqueTubeDrop: 0.11,
+
+  /**
+   * How far in front of the tilt axis the module plane sits, m.
+   *
+   * The array is 3.2 m deep and 4.1 m wide. If it is centred on the column,
+   * a steep tilt (evening, ~83°) puts the module plane THROUGH the pole --
+   * the column appears to punch out of the glass. Offsetting the modules
+   * along the face normal keeps that plane in front of the column at every
+   * angle the tracker uses. 0.48 m clears the 0.265 m collar with margin.
+   */
+  arrayStandoff: 0.48,
 
   /** Clearance under the array's lower edge at full 90-degree tilt, m. */
   groundClearance: 0.45,
   minPivotHeight: 2.05,
   segments: 40,
+};
+
+/**
+ * The adjustable ground rack.
+ *
+ * Unlike the pole, none of this rack is generated INTO the model: its
+ * hinge posts, feet and telescopic legs are drawn at runtime by
+ * SolarArray.jsx, because the legs have to change length as the tilt
+ * slider moves and baked geometry cannot. All the segmenter does for a
+ * rack is drop the catalogue's own legs and move the tilt axis to the
+ * array's front edge, at this height, so that the runtime rack has a hinge
+ * to hang off.
+ *
+ * The number therefore has to agree with `scene.rack.hingeHeight` in
+ * solarSpecs.js, and is the one thing the two files share.
+ */
+const RACK = {
+  hingeHeight: 0.3,
 };
 
 /**
@@ -658,7 +923,7 @@ function buildMast(arrayDepthM, arrayWidthM) {
  * Geometry is converted from inches to metres but otherwise untouched: no
  * decimation, no re-topology, no recomputed normals.
  */
-export async function extractAssembly(assembly, outputPath, { flatten = true, mast = false } = {}) {
+export async function extractAssembly(assembly, outputPath, { flatten = true, mast = false, rack = false } = {}) {
   const { Document } = await import('@gltf-transform/core');
 
   // Tilt axis: horizontal, perpendicular to the direction the panel faces.
@@ -697,6 +962,24 @@ export async function extractAssembly(assembly, outputPath, { flatten = true, ma
    * +Y. Negating it tilts the panel the other way instead, which is how an
    * earlier pass turned a 47-degree array into a near-vertical one.
    */
+  const tiltBack = (v) => {
+    if (!authoredTilt) return v;
+    const c = Math.cos(authoredTilt);
+    const s = -Math.sin(authoredTilt);
+    const k = axis;
+    const dot = k[0] * v[0] + k[1] * v[1] + k[2] * v[2];
+    const cr = [
+      k[1] * v[2] - k[2] * v[1],
+      k[2] * v[0] - k[0] * v[2],
+      k[0] * v[1] - k[1] * v[0],
+    ];
+    return [
+      v[0] * c + cr[0] * s + k[0] * dot * (1 - c),
+      v[1] * c + cr[1] * s + k[1] * dot * (1 - c),
+      v[2] * c + cr[2] * s + k[2] * dot * (1 - c),
+    ];
+  };
+
   const unTilt = (v) => {
     if (!authoredTilt) return v;
     const c = Math.cos(authoredTilt);
@@ -763,6 +1046,7 @@ export async function extractAssembly(assembly, outputPath, { flatten = true, ma
     const isSurface = t.isPanel
       && alignment >= normalTolerance
       && Math.abs(offset) <= slabHalfThickness;
+    t.planeOffset = offset;
 
     // What moves is decided by proximity to the module plane, not by height.
     // Rails, clamps and the torque tube sit within the panel sandwich and
@@ -777,6 +1061,8 @@ export async function extractAssembly(assembly, outputPath, { flatten = true, ma
       groups.SolarPanelBase.push(t);
     }
   }
+  // The catalogue glass is a thick, torn solid. The visible face is
+  // rebuilt as a flat 2×4 cell grid in the same outline; see generatedGlass.
 
   const document = new Document();
   const buffer = document.createBuffer();
@@ -797,11 +1083,17 @@ export async function extractAssembly(assembly, outputPath, { flatten = true, ma
   const GROUP_MATERIALS = {
     SolarPanelSurface: {
       name: 'PV_Laminate',
-      // Deep blue-black, but not pure black: cells are visibly blue, and a
-      // little specular is what makes a panel read as glass rather than felt.
-      baseColor: [0.105, 0.135, 0.245, 1],
-      metallic: 0.12,
-      roughness: 0.28,
+      // Silicon blue, dark enough to read as a module and light enough
+      // that the white grid lines on top of it stay visible.
+      baseColor: [0.07, 0.16, 0.40, 1],
+      metallic: 0.08,
+      roughness: 0.34,
+    },
+    SolarPanelGrid: {
+      name: 'PV_Grid',
+      baseColor: [0.90, 0.92, 0.94, 1],
+      metallic: 0.04,
+      roughness: 0.55,
     },
     SolarPanelFrame: {
       name: 'Aluminium_Rail',
@@ -831,6 +1123,12 @@ export async function extractAssembly(assembly, outputPath, { flatten = true, ma
       metallic: 0.78,
       roughness: 0.42,
     },
+    SolarPanelBacking: {
+      name: 'PV_Backsheet',
+      baseColor: [0.012, 0.016, 0.028, 1],
+      metallic: 0.0,
+      roughness: 0.85,
+    },
   };
 
   const materials = new Map();
@@ -847,7 +1145,7 @@ export async function extractAssembly(assembly, outputPath, { flatten = true, ma
     return mat;
   };
 
-  const buildNode = (name, triangles, { relativeTo, applyUnTilt }) => {
+  const buildNode = (name, triangles, { relativeTo, applyUnTilt, offsetAfter = null }) => {
     const node = document.createNode(name);
     if (!triangles.length) return node;
 
@@ -873,6 +1171,21 @@ export async function extractAssembly(assembly, outputPath, { flatten = true, ma
           ];
           let nv = t.n[k];
           if (applyUnTilt) { p = unTilt(p); nv = unTilt(nv); }
+          // Applied after un-tilting, in the array's own flat space, so a
+          // mount can choose which edge of the array lands on its origin.
+          if (offsetAfter) p = [p[0] - offsetAfter[0], p[1] - offsetAfter[1], p[2] - offsetAfter[2]];
+          // Collapse the catalogue's stacked sheets onto one thin panel.
+          // Inches, measured off the module plane. Glass on top, backing
+          // 0.9 in under it -- about 2 cm, not the open 15 cm sandwich.
+          if (applyUnTilt && name === 'SolarPanelSurface') {
+            p[1] = 0.55;
+          } else if (applyUnTilt && name === 'SolarPanelBacking') {
+            p[1] = -0.35;
+          } else if (applyUnTilt && name === 'SolarPanelGrid') {
+            p[1] = 0.78;
+          } else if (applyUnTilt && name === 'SolarPanelFrame') {
+            p[1] = 0.15;
+          }
           const o = ti * 9 + k * 3;
           positions[o] = p[0] * INCH;
           positions[o + 1] = p[1] * INCH;
@@ -903,22 +1216,6 @@ export async function extractAssembly(assembly, outputPath, { flatten = true, ma
    * bounding box happens to cast while tilted. The mast generator needs
    * the real slope length to work out how high the pivot must sit.
    */
-  const flatExtent = () => {
-    let minX = Infinity; let maxX = -Infinity;
-    let minZ = Infinity; let maxZ = -Infinity;
-    for (const t of groups.SolarPanelSurface) {
-      for (const vertex of t.p) {
-        const q = unTilt([vertex[0] - pivot[0], vertex[1] - pivot[1], vertex[2] - pivot[2]]);
-        if (q[0] < minX) minX = q[0];
-        if (q[0] > maxX) maxX = q[0];
-        if (q[2] < minZ) minZ = q[2];
-        if (q[2] > maxZ) maxZ = q[2];
-      }
-    }
-    if (!Number.isFinite(minX)) return { widthM: 1, depthM: 1 };
-    return { widthM: (maxX - minX) * INCH, depthM: (maxZ - minZ) * INCH };
-  };
-
   /**
    * Un-tilted positions of a triangle's three vertices, relative to the
    * pivot. Inches, with Y measured off the module plane.
@@ -927,54 +1224,79 @@ export async function extractAssembly(assembly, outputPath, { flatten = true, ma
     (vertex) => unTilt([0, 1, 2].map((k) => vertex[k] - pivot[k])),
   );
 
-  let pole = null;
+  /** The modules' outline once laid flat, in inches, around the pivot. */
+  const flatBounds = () => {
+    const b = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
+    for (const t of groups.SolarPanelSurface) {
+      for (const q of flatVertices(t)) {
+        if (q[0] < b.minX) b.minX = q[0];
+        if (q[0] > b.maxX) b.maxX = q[0];
+        if (q[2] < b.minZ) b.minZ = q[2];
+        if (q[2] > b.maxZ) b.maxZ = q[2];
+      }
+    }
+    return Number.isFinite(b.minX) ? b : { minX: -20, maxX: 20, minZ: -20, maxZ: 20 };
+  };
+
+  const flatExtent = () => {
+    const b = flatBounds();
+    return { widthM: (b.maxX - b.minX) * INCH, depthM: (b.maxZ - b.minZ) * INCH };
+  };
+
+  /**
+   * Drops the catalogue mount's bracing from the moving assembly.
+   *
+   * Group membership is decided by where a triangle's CENTROID sits
+   * relative to the module plane, which is the right test for the rails and
+   * clamps it was written for -- they are small and local, so their
+   * centroid describes them. It is the wrong test for a diagonal brace: the
+   * catalogue draws a metre-long strut as one long thin triangle running
+   * from under the array down towards the legs, and its midpoint lands
+   * inside the frame slab even though the triangle itself leaves it
+   * entirely. Those struts are therefore classed as frame, and once the
+   * original mount is replaced they rotate with the array as thin spider
+   * legs reaching out into empty air, bolted to nothing.
+   *
+   * So the cull tests all three VERTICES, not the midpoint: a triangle
+   * survives only if the whole of it stays inside the box the modules and
+   * their rails occupy -- their flat outline plus a rail's width, and the
+   * frame slab's own depth below them. That is a statement about the part
+   * rather than about its average position, which is what was missing.
+   */
+  const cullBracing = (label, { tightY = false } = {}) => {
+    const xzMargin = tightY ? 3 : 8;
+    // Tight XZ kills diagonal braces that leave the module outline.
+    // Y stays at the frame slab so the backing behind the cells survives;
+    // extra margin is dropped on a rack so the catalogue's own legs
+    // (they hang ~19 in below the plane) still fall off.
+    const yLimit = FRAME_SLAB + (tightY ? 0 : 8);
+    const b = flatBounds();
+    const before = groups.SolarPanelFrame.length;
+    groups.SolarPanelFrame = groups.SolarPanelFrame.filter((t) => flatVertices(t).every(
+      (q) => q[0] >= b.minX - xzMargin && q[0] <= b.maxX + xzMargin
+        && q[2] >= b.minZ - xzMargin && q[2] <= b.maxZ + xzMargin
+        && q[1] >= -yLimit && q[1] <= yLimit,
+    ));
+    console.error(`[${label}] frame triangles ${before} -> ${groups.SolarPanelFrame.length}`);
+  };
+
+  /**
+   * Where the tilt axis is, and how the flat array sits on it.
+   *
+   * `translation` places the tracking node in the finished model, and
+   * `offsetAfter` shifts the flat geometry inside it. Together they decide
+   * which edge of the array stays put when it tilts, which is the whole
+   * visible difference between a tracker and an adjustable rack.
+   */
+  let mount = null;
+
   if (mast) {
     // The catalogue's own ground frame is dropped here, and only here.
     // Its modules, laminate and rails carry straight through untouched --
     // what changes is the thing they are bolted to.
+    cullBracing('mast');
     const flat = flatExtent();
-
-    /**
-     * Drops the old pedestal's bracing from the moving assembly.
-     *
-     * Group membership is decided by where a triangle's CENTROID sits
-     * relative to the module plane, which is the right test for the rails
-     * and clamps it was written for -- they are small and local, so their
-     * centroid describes them. It is the wrong test for a diagonal brace:
-     * the catalogue draws a metre-long strut as one long thin triangle
-     * running from under the array down towards the legs, and its midpoint
-     * lands inside the frame slab even though the triangle itself leaves it
-     * entirely. Those struts were therefore classed as frame, and on a
-     * column they rotate with the array as thin spider legs reaching out
-     * into empty air, bolted to nothing.
-     *
-     * So the cull tests all three VERTICES, not the midpoint: a triangle
-     * survives only if the whole of it stays inside the box the modules and
-     * their rails occupy -- their flat outline plus a rail's width, and the
-     * frame slab's own depth below them. That is a statement about the part
-     * rather than about its average position, which is what was missing.
-     */
-    const margin = 8;            // inches, past the module outline
-    const depthBelow = FRAME_SLAB; // inches, the rails' own sandwich
-    let minX = Infinity; let maxX = -Infinity;
-    let minZ = Infinity; let maxZ = -Infinity;
-    for (const t of groups.SolarPanelSurface) {
-      for (const q of flatVertices(t)) {
-        if (q[0] < minX) minX = q[0];
-        if (q[0] > maxX) maxX = q[0];
-        if (q[2] < minZ) minZ = q[2];
-        if (q[2] > maxZ) maxZ = q[2];
-      }
-    }
-    const before = groups.SolarPanelFrame.length;
-    groups.SolarPanelFrame = groups.SolarPanelFrame.filter((t) => flatVertices(t).every(
-      (q) => q[0] >= minX - margin && q[0] <= maxX + margin
-        && q[2] >= minZ - margin && q[2] <= maxZ + margin
-        && q[1] >= -depthBelow - margin && q[1] <= depthBelow + margin,
-    ));
-    console.error(`[mast] frame triangles ${before} -> ${groups.SolarPanelFrame.length}`);
-
-    pole = buildMast(flat.depthM, flat.widthM);
+    const pole = buildMast(flat.depthM, flat.widthM);
 
     const base = buildNode('SolarPanelBase', pole.column, {
       relativeTo: [0, 0, 0], applyUnTilt: false,
@@ -983,19 +1305,56 @@ export async function extractAssembly(assembly, outputPath, { flatten = true, ma
       relativeTo: [0, 0, 0], applyUnTilt: false,
     }));
     root.addChild(base);
+
+    // The array is centred on the column in XZ, but pushed FORWARD along
+    // the face normal (local +Y) by arrayStandoff. Without that, a steep
+    // tilt puts the glass through the pole. offsetAfter is in inches and
+    // is subtracted from the un-tilted points, so a negative Y shifts the
+    // modules up, in front of the torque tube.
+    mount = {
+      pole,
+      translation: [0, pole.pivotY, 0],
+      offsetAfter: [0, -MAST.arrayStandoff / INCH, 0],
+    };
+  } else if (rack) {
+    /**
+     * An adjustable rack hinges at its FRONT edge.
+     *
+     * This is the difference the reference photograph is about. A rack like
+     * that is bolted down at the low, sun-facing edge and raised at the
+     * back by a pair of telescopic legs, so changing the tilt lengthens the
+     * legs while the hinge stays exactly where it is. Rotating about the
+     * array's centre instead -- correct for a tracker -- would drive the
+     * front edge into the ground and lift the hinge off its feet, and no
+     * strut drawn against it could line up.
+     *
+     * Positive tilt leans the array towards +Z (see SolarArray.jsx), which
+     * sends the +Z edge DOWN and the -Z edge up. So +Z is the front, and
+     * the hinge line is the flat outline's maximum Z.
+     *
+     * The finished model is therefore built around the HINGE rather than
+     * around the array: origin on the ground directly under the hinge pin,
+     * array reaching back from it in -Z. That is what lets the rack's legs
+     * be drawn at runtime from two fixed numbers -- see `scene.rack` in
+     * solarSpecs.js.
+     */
+    cullBracing('rack', { tightY: true });
+    const b = flatBounds();
+    mount = {
+      translation: [0, RACK.hingeHeight, 0],
+      offsetAfter: [(b.minX + b.maxX) / 2, 0, b.maxZ],
+    };
   } else {
     root.addChild(buildNode('SolarPanelBase', groups.SolarPanelBase, {
       relativeTo: baseOrigin, applyUnTilt: false,
     }));
   }
 
-  // On a pole mount the pivot is where the column puts it -- centred on the
-  // axis, at the height that keeps the array clear of the ground through
-  // its full travel -- rather than wherever the catalogue's frame happened
-  // to carry it.
+  // On a generated mount the tilt axis is where that mount puts it. On the
+  // catalogue's own mounts it stays wherever their frame carried it.
   const tracker = document.createNode('SolarPanelTrackingAssembly').setTranslation(
-    pole
-      ? [0, pole.pivotY, 0]
+    mount
+      ? mount.translation
       : [
         (pivot[0] - baseOrigin[0]) * INCH,
         (pivot[1] - baseOrigin[1]) * INCH,
@@ -1003,17 +1362,21 @@ export async function extractAssembly(assembly, outputPath, { flatten = true, ma
       ],
   );
   root.addChild(tracker);
-  if (pole) {
-    tracker.addChild(buildNode('SolarPanelYoke', pole.yoke, {
+  if (mount?.pole) {
+    tracker.addChild(buildNode('SolarPanelYoke', mount.pole.yoke, {
       relativeTo: [0, 0, 0], applyUnTilt: false,
     }));
   }
-  tracker.addChild(buildNode('SolarPanelSurface', groups.SolarPanelSurface, {
-    relativeTo: pivot, applyUnTilt: true,
-  }));
-  tracker.addChild(buildNode('SolarPanelFrame', groups.SolarPanelFrame, {
-    relativeTo: pivot, applyUnTilt: true,
-  }));
+  const panelPlacement = { relativeTo: pivot, applyUnTilt: true, offsetAfter: mount?.offsetAfter };
+  // Replace the catalogue's thick, torn glass with one flat 2×4 grid
+  // in the same outline. tiltBack puts it into world inches so the
+  // usual un-tilt lands it back on the module plane.
+  const outline = flatBounds();
+  const glass = generatedGlass(outline, tiltBack, pivot);
+  tracker.addChild(buildNode('SolarPanelBacking', glass.backing, panelPlacement));
+  tracker.addChild(buildNode('SolarPanelFrame', glass.frames, panelPlacement));
+  tracker.addChild(buildNode('SolarPanelSurface', glass.cells, panelPlacement));
+  tracker.addChild(buildNode('SolarPanelGrid', glass.lines, panelPlacement));
 
   // Draco, same as the wind models: lossless to the eye, and it takes this
   // assembly from ~11.8 MB to something a browser can fetch comfortably.
@@ -1042,18 +1405,16 @@ export async function extractAssembly(assembly, outputPath, { flatten = true, ma
   const slopeLength = (assembly.size[2] * INCH) / Math.max(Math.cos(authoredTilt), 0.2);
   const boxEstimate = assembly.size[0] * INCH * slopeLength;
 
-  // With a generated column the catalogue's bounding box describes a frame
-  // that is no longer in the model, so the reported size is rebuilt from
-  // what is actually there: the flat array, standing on its own pedestal.
-  const sizeM = pole
-    ? (() => {
-      const flat = flatExtent();
-      return [
-        +Math.max(flat.widthM, MAST.padRadius * 2).toFixed(2),
-        +(pole.pivotY + MAST.yokeRise).toFixed(2),
-        +flat.depthM.toFixed(2),
-      ];
-    })()
+  // Once the catalogue's own mount is gone its bounding box describes a
+  // frame that is no longer in the model, so the reported size is rebuilt
+  // from what is actually there: the flat array on its generated mount.
+  const flat = mount ? flatExtent() : null;
+  const sizeM = mount
+    ? [
+      +Math.max(flat.widthM, mount.pole ? MAST.padRadius * 2 : 0).toFixed(2),
+      +((mount.pole ? mount.pole.pivotY + MAST.yokeRise : RACK.hingeHeight + flat.depthM)).toFixed(2),
+      +flat.depthM.toFixed(2),
+    ]
     : assembly.size.map((v) => +(v * INCH).toFixed(2));
 
   return {
@@ -1061,7 +1422,8 @@ export async function extractAssembly(assembly, outputPath, { flatten = true, ma
     apertureM2: +apertureM2.toFixed(2),
     boxEstimateM2: +boxEstimate.toFixed(2),
     sizeM,
-    pivotHeightM: pole ? +pole.pivotY.toFixed(2) : null,
+    pivotHeightM: mount?.pole ? +mount.pole.pivotY.toFixed(2) : null,
+    hingeHeightM: mount && !mount.pole ? RACK.hingeHeight : null,
     authoredTiltDeg: +assembly.tiltDeg.toFixed(1),
     triangles: Object.fromEntries(Object.entries(groups).map(([k, v]) => [k, v.length])),
   };
@@ -1080,7 +1442,8 @@ if (invokedDirectly && process.argv.includes('--extract')) {
     process.exit(1);
   }
   const mast = process.argv.includes('--mast');
-  console.log(JSON.stringify(await extractAssembly(assemblies[index], out, { mast })));
+  const rack = process.argv.includes('--rack');
+  console.log(JSON.stringify(await extractAssembly(assemblies[index], out, { mast, rack })));
 } else if (invokedDirectly) {
   await report();
 }

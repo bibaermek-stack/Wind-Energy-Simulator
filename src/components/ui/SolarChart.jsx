@@ -15,9 +15,9 @@
  *   absolute W     what each installation makes -- the practical answer
  *   specific W/m^2 what each makes per square metre -- the fair comparison
  *
- * The mounts have different areas, so the absolute chart partly reflects
- * size. The specific chart divides that out and shows the effect of
- * orientation alone, which is what the module is teaching.
+ * The arrays are identical (eight modules, 13.09 m^2), so the absolute
+ * chart is already a fair comparison of aim. The specific chart is the
+ * same data per square metre.
  */
 
 import { useMemo } from 'react';

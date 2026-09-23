@@ -15,28 +15,19 @@
  * attributable to the control mechanism alone.
  *
  * ---------------------------------------------------------------------------
- * ON THE THREE DIFFERENT MOUNTS
+ * ON THE THREE MOUNTS
  * ---------------------------------------------------------------------------
- * They are three different products cut from the supplied catalogue,
- * chosen to match the three installation types in the reference
- * photographs: a compact array on a pole (the tracker), a wide array on
- * adjustable legs, and a low fixed ground row.
+ * All three carry the SAME array: assembly #1 from the catalogue, eight
+ * modules, 13.09 m^2. The mounts differ, the glass does not.
  *
- * Only the tracker's mount is not from the catalogue. The catalogue has no
- * pole-mounted tracker -- every assembly in it is a ground frame -- so its
- * column and pivot head are generated and its modules are the supplied
- * geometry moved onto them. Nothing else in any of the three is drawn.
+ *   auto    generated pole and pivot (the catalogue has no tracker)
+ *   manual  front-hinge rack, telescopic rear arms drawn at runtime
+ *   fixed   the catalogue's own ground frame, bolted at 35° / 180°
  *
- * They therefore have genuinely different collecting areas -- 6.54, 13.09
- * and 9.61 m^2. That means raw watts are NOT a fair comparison between them:
- * a bigger panel produces more for reasons that have nothing to do with
- * tracking.
- *
- * So the interface reports SPECIFIC YIELD -- watts per square metre of
- * aperture -- beside the absolute figure. Specific yield divides the area
- * back out, leaving only the effect of orientation, which is exactly the
- * quantity this module exists to teach. Absolute watts still answer the
- * other real question: how much electricity does this installation make.
+ * Because the collecting area is identical, a watt is a watt: the panel
+ * that leads on the dashboard is the one that is better aimed, not the
+ * one that happens to be larger. Specific yield (W/m^2) is still shown
+ * as the intensive form of the same number.
  *
  * ---------------------------------------------------------------------------
  * ON THE PARAMETERS
@@ -133,32 +124,23 @@ export const SOLAR_PANELS = [
         + 'cos θ stays close to 1 and the panel collects all it can.',
     },
 
-    // The modules are assembly #5 from the catalogue, on a pedestal built
-    // by scripts/segment-solar.mjs.
-    //
-    // The catalogue has no pole-mounted tracker in it -- all nine of its
-    // assemblies are ground frames -- so the column and pivot head are
-    // generated, and only those. The array itself is the supplied
-    // geometry, lifted off its original frame and set on top. See the
-    // "generated pole mount" section of that script for why every part of
-    // the column is a surface of revolution.
-    apertureArea: 6.54,       // measured, unchanged by the re-mount
-    widthM: 1.96,
-    depthM: 3.22,
-    // Standing height at the steepest tilt the slider allows: the pivot at
-    // 2.06 m plus half the array's slope length swung vertical.
-    heightM: 3.67,
-    moduleCount: 4,
+    // Same eight-module array as the other two, on a generated pole.
+    // scripts/segment-solar.mjs --extract 1 --mast
+    // The modules sit 0.48 m in front of the tilt axis so a steep evening
+    // tilt cannot drive the glass through the column.
+    apertureArea: 13.09,      // measured
+    widthM: 4.10,
+    depthM: 3.20,
+    heightM: 3.65,
+    moduleCount: 8,
     ...COMMON,
-    ratedPower: rated(6.54),
+    ratedPower: rated(13.09),
 
     scene: {
       modelUrl: '/models/solar-auto.glb',
-      position: [38, 0, 45],
+      position: [36, 0, 45],
       rotationY: 0,
-      // Clears the array's top edge at 90 degrees, so the label never ends
-      // up behind the panel it belongs to.
-      labelHeight: 4.1,
+      labelHeight: 4.3,
     },
   },
 
@@ -185,22 +167,55 @@ export const SOLAR_PANELS = [
         + 'the best morning angle is the wrong evening one.',
     },
 
-    // Assembly #1: a wide array on legs with a rear brace -- the
-    // adjustable-tilt ground mount of the reference photographs, and the
-    // natural one to put under hand control.
+    // Assembly #1's array, on an adjustable ground rack.
+    //
+    // The catalogue's own legs under this array are fixed: they hold it at
+    // one authored angle and there is no mechanism in them. The reference
+    // photograph is of the opposite thing -- a rack hinged along its front
+    // edge with a pair of telescopic rear arms, where changing the tilt
+    // visibly lengthens the arms. So the segmenter drops those legs and
+    // moves the tilt axis to the array's front edge, and the rack itself is
+    // drawn at runtime by SolarArray.jsx, because baked geometry cannot
+    // change length. The modules and rails are the supplied geometry.
     apertureArea: 13.09,      // measured
-    widthM: 4.27,
-    depthM: 2.69,
-    heightM: 2.18,
+    widthM: 4.10,
+    depthM: 3.20,
+    // Standing height at 90 degrees: the hinge plus the array stood upright.
+    heightM: 3.50,
     moduleCount: 8,
     ...COMMON,
     ratedPower: rated(13.09),
 
     scene: {
       modelUrl: '/models/solar-manual.glb',
-      position: [45, 0, 45],
+      // The model's origin is under the HINGE, not under the array's
+      // centre, so this is offset half the array's depth towards the
+      // camera to leave the panel itself centred in the row.
+      position: [45.5, 0, 46.6],
       rotationY: 0,
-      labelHeight: 3.8,
+      labelHeight: 3.9,
+
+      /**
+       * The runtime rack. Metres, in the model's own frame: origin on the
+       * ground under the hinge pin, array reaching back in -Z.
+       *
+       * `hingeHeight` must match the RACK constant in
+       * scripts/segment-solar.mjs -- that script puts the tilt axis there,
+       * and this draws the hardware that holds it up.
+       */
+      rack: {
+        hingeHeight: 0.3,
+        // Rear edge of the 8-module array is at z = -3.20 m. Attach just
+        // inboard of that so the arms meet the back rail, not the middle
+        // of the glass -- otherwise a steep tilt leaves the rear flying.
+        attachDistance: 3.05,
+        // Half-width of the modules is 2.05 m. Sitting 13 cm outside that
+        // keeps the telescopic arms in silhouette from the teaching camera
+        // instead of parking them behind the laminate.
+        legSpan: 2.18,
+        hingeSpan: 1.90,
+        sleeveLength: 0.22,
+      },
     },
   },
 
@@ -228,19 +243,20 @@ export const SOLAR_PANELS = [
         + 'badly at both ends of the day.',
     },
 
-    apertureArea: 9.61,       // measured
-    widthM: 5.41,
-    depthM: 1.54,
-    heightM: 1.87,
-    moduleCount: 6,
+    // Same eight-module array, on the catalogue's own ground frame.
+    apertureArea: 13.09,      // measured
+    widthM: 4.10,
+    depthM: 3.20,
+    heightM: 2.18,
+    moduleCount: 8,
     ...COMMON,
-    ratedPower: rated(9.61),
+    ratedPower: rated(13.09),
 
     scene: {
       modelUrl: '/models/solar-fixed.glb',
-      position: [53, 0, 45],
+      position: [55, 0, 45],
       rotationY: 0,
-      labelHeight: 2.9,
+      labelHeight: 3.4,
     },
   },
 ];
@@ -269,6 +285,6 @@ export const SOLAR_VIEW = {
   // on the left now stands over three metres tall at steep tilt, and aiming
   // at the row's geometric centre left it climbing out of the top of the
   // frame every morning and evening.
-  cameraOffset: [2, 9, 27],
-  target: [45.5, 2.4, 45],
+  cameraOffset: [2, 10, 32],
+  target: [45.5, 2.6, 45],
 };

@@ -6,13 +6,11 @@
  * figures that matter --
  *
  *   absolute watts   what this installation actually makes
- *   W/m^2            what it makes per square metre of glass
+ *   W/m^2            the same number per square metre of glass
  *
- * -- because the three mounts have genuinely different areas (13.09,
- * 15.43 and 9.61 m^2). Comparing raw watts would partly be comparing
- * sizes; specific yield divides the area back out and leaves only the
- * effect of orientation, which is the thing being taught. The bar under
- * each card is drawn on specific yield for that reason.
+ * All three arrays are identical -- eight modules, 13.09 m^2 -- so a watt
+ * is a fair comparison. The bar under each card is still drawn on specific
+ * yield, which is the intensive form of that same figure.
  */
 
 import {

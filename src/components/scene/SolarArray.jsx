@@ -17,8 +17,9 @@
  *   SolarPanelRoot                 <- azimuth, rotated about Y
  *     SolarPanelBase               <- posts and footings: never rotated
  *     SolarPanelTrackingAssembly   <- tilt, origin ON the tilt axis
- *       SolarPanelSurface          <- module faces
- *       SolarPanelFrame            <- rails and clamps in the module slab
+ *       SolarPanelSurface          <- the photovoltaic cells
+ *       SolarPanelGrid             <- the light lines between those cells
+ *       SolarPanelFrame            <- the aluminium rim around each module
  *
  * The tracking assembly's origin sits on the tilt axis, so rotating it
  * swings the modules about their torque tube while the posts stay planted.
@@ -104,6 +105,7 @@ export default function SolarArray({ spec, showLabel = true }) {
   return (
     <group position={spec.scene.position} rotation={[0, spec.scene.rotationY, 0]}>
       <primitive object={model} />
+      {spec.scene.rack && <AdjustableRack spec={spec} trackerRef={trackerRef} />}
 
       {showLabel && (
         <Html
@@ -115,6 +117,176 @@ export default function SolarArray({ spec, showLabel = true }) {
           <PanelTag spec={spec} />
         </Html>
       )}
+    </group>
+  );
+}
+
+/**
+ * The adjustable-tilt rack under Panel 2.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS IS NOT IN THE MODEL FILE
+ * ---------------------------------------------------------------------------
+ * Everything else about these panels is baked geometry. This is not, and it
+ * cannot be: the whole point of an adjustable rack is that its rear legs
+ * CHANGE LENGTH. Set the tilt slider to 20 degrees and the legs are short;
+ * set it to 60 and they telescope out. A mesh exported at one length can
+ * only be rotated, so the visible link between the slider and the hardware
+ * -- which is the thing the panel exists to teach -- has to be computed
+ * every frame.
+ *
+ * So the segmenter gives this panel a hinge instead of a mount: it drops
+ * the catalogue's own legs and moves the tilt axis to the array's front
+ * edge, at `rack.hingeHeight` (see the RACK constant in
+ * scripts/segment-solar.mjs, which this must agree with). The array's
+ * modules, rails and laminate are still entirely the supplied geometry.
+ *
+ * ---------------------------------------------------------------------------
+ * THE GEOMETRY
+ * ---------------------------------------------------------------------------
+ * The model's origin is on the ground directly under the hinge pin, with
+ * the array reaching back in -Z. Each rear leg therefore runs between two
+ * points this component can work out from the tilt alone:
+ *
+ *   anchor  (+-legSpan, 0, -attachDistance)      bolted to the ground
+ *   attach  the same point transformed by the GLB tracker node
+ *
+ * The attach is read from the tracker mesh every frame, not recomputed
+ * from an analytic formula. The array's module plane is a few centimetres
+ * off y = 0 in the GLB; an analytic hinge would miss it as soon as the
+ * slider moved, and the arms would look like they had broken off.
+ */
+function AdjustableRack({ spec, trackerRef }) {
+  const rack = spec.scene.rack;
+  const yawRef = useRef(null);
+  const tiltRef = useRef(null);
+  const leftLeg = useRef(null);
+  const rightLeg = useRef(null);
+  const leftRod = useRef(null);
+  const rightRod = useRef(null);
+  const leftCap = useRef(null);
+  const rightCap = useRef(null);
+  const legRefs = [leftLeg, rightLeg];
+  const rodRefs = [leftRod, rightRod];
+  const capRefs = [leftCap, rightCap];
+  const _attach = useMemo(() => new THREE.Vector3(), []);
+  const _foot = useMemo(() => new THREE.Vector3(), []);
+
+  // Mill-finish aluminium, same family as the catalogue rails. Shared so
+  // the whole rack is one draw state.
+  const metal = useMemo(() => new THREE.MeshStandardMaterial({
+    color: '#c8ccd1',
+    metalness: 0.88,
+    roughness: 0.28,
+    side: THREE.DoubleSide,
+  }), []);
+
+  useFrame(() => {
+    const orientation = solarEngine.orientationOf(spec.id);
+    if (!orientation || !yawRef.current) return;
+
+    yawRef.current.rotation.y = THREE.MathUtils.degToRad(180 - orientation.azimuth);
+
+    const tilt = THREE.MathUtils.degToRad(orientation.tilt);
+    if (tiltRef.current) tiltRef.current.rotation.x = tilt;
+
+    const tracker = trackerRef?.current;
+    if (tracker) tracker.updateWorldMatrix(true, false);
+
+    const d = rack.attachDistance;
+    const sides = [-1, 1];
+    for (let i = 0; i < 2; i++) {
+      const x = sides[i] * rack.legSpan;
+      _foot.set(x, 0, -d);
+
+      if (tracker) {
+        // Underside of the back rail, in the tracker frame (module plane
+        // sits a few cm above y = 0).
+        _attach.set(x, -0.04, -d);
+        tracker.localToWorld(_attach);
+        yawRef.current.worldToLocal(_attach);
+      } else {
+        _attach.set(
+          x,
+          rack.hingeHeight + d * Math.sin(tilt),
+          -d * Math.cos(tilt),
+        );
+      }
+
+      const dy = _attach.y - _foot.y;
+      const dz = _attach.z - _foot.z;
+      const length = Math.hypot(dy, dz) || 1e-3;
+      const angle = Math.atan2(dz, dy);
+
+      if (legRefs[i].current) legRefs[i].current.rotation.x = angle;
+      if (rodRefs[i].current) {
+        rodRefs[i].current.scale.y = length;
+        rodRefs[i].current.position.y = length / 2;
+      }
+      if (capRefs[i].current) capRefs[i].current.position.y = length;
+    }
+  });
+
+  const sides = [-1, 1];
+
+  return (
+    <group ref={yawRef}>
+      {/* Front L-brackets: the edge that does not move. Two corner feet,
+          matching the reference photograph, not a third post in the middle. */}
+      {[-rack.hingeSpan, rack.hingeSpan].map((x) => (
+        <group key={`hinge${x}`} position={[x, 0, 0]}>
+          <mesh material={metal} position={[0, 0.01, 0.02]} castShadow receiveShadow>
+            <boxGeometry args={[0.18, 0.02, 0.22]} />
+          </mesh>
+          <mesh material={metal} position={[0, rack.hingeHeight / 2, 0]} castShadow>
+            <boxGeometry args={[0.045, rack.hingeHeight, 0.09]} />
+          </mesh>
+          <mesh
+            material={metal}
+            position={[0, rack.hingeHeight, 0]}
+            rotation={[0, 0, Math.PI / 2]}
+            castShadow
+          >
+            <cylinderGeometry args={[0.018, 0.018, 0.14, 12]} />
+          </mesh>
+        </group>
+      ))}
+
+      {/* Rear cross-rail: sits under the back edge of the array and tilts
+          with it, so the telescopic arms have something visible to push
+          against from the teaching camera. */}
+      <group ref={tiltRef} position={[0, rack.hingeHeight, 0]}>
+        <mesh
+          material={metal}
+          position={[0, -0.04, -rack.attachDistance]}
+          castShadow
+        >
+          <boxGeometry args={[rack.legSpan * 2 + 0.1, 0.05, 0.06]} />
+        </mesh>
+      </group>
+
+      {/* Rear telescopic arms. Square extrusion, like the photograph.
+          Placed OUTBOARD of the modules so they read as two silver posts
+          flanking the array instead of hiding behind it. */}
+      {sides.map((side, i) => (
+        <group key={`leg${side}`} position={[side * rack.legSpan, 0, -rack.attachDistance]}>
+          <mesh material={metal} position={[0, 0.01, 0]} castShadow receiveShadow>
+            <boxGeometry args={[0.16, 0.02, 0.16]} />
+          </mesh>
+
+          <group ref={legRefs[i]}>
+            <mesh material={metal} position={[0, rack.sleeveLength / 2, 0]} castShadow>
+              <boxGeometry args={[0.07, rack.sleeveLength, 0.07]} />
+            </mesh>
+            <mesh ref={rodRefs[i]} material={metal} castShadow>
+              <boxGeometry args={[0.048, 1, 0.048]} />
+            </mesh>
+            <mesh ref={capRefs[i]} material={metal} castShadow>
+              <boxGeometry args={[0.11, 0.07, 0.09]} />
+            </mesh>
+          </group>
+        </group>
+      ))}
     </group>
   );
 }

@@ -11,11 +11,9 @@
  * headline figures are a property of the physics and not of how long the
  * page has been open.
  *
- * Only rows whose displayed number is comparable across the three carry a
- * "best" mark: angles, cos(theta), irradiance, and the per-square-metre
- * figures. The absolute watt and watt-hour rows carry none, because the
- * three mounts have genuinely different areas and the largest can lead on
- * watts while being the worst aimed.
+ * All three arrays are identical hardware, so a "best" mark on watts is
+ * now a fair statement about aim. The per-square-metre rows carry the
+ * same ranking in intensive form.
  */
 
 import { useMemo } from 'react';
@@ -99,17 +97,10 @@ export default function TrackingComparison() {
       values: SOLAR_PANELS.map((p) => `${number(panels[p.id]?.planeIrradiance ?? 0, 0)} ${UNITS.irradiance}`),
       raw: SOLAR_PANELS.map((p) => panels[p.id]?.planeIrradiance ?? 0),
     },
-    // Absolute figures are deliberately NOT marked with a winner.
-    //
-    // They depend on panel area as much as on aim: the manual panel is 18%
-    // larger than the tracker, so it can show more watts while being worse
-    // aimed. Highlighting a "best" absolute cell would then put the mark on
-    // 1.7 kW while 2.0 kW sat unmarked beside it, which reads as a bug
-    // rather than as the subtlety it is. The per-square-metre rows below
-    // carry the marks, because there the comparison is like for like.
     {
       label: T.powerAc,
       values: SOLAR_PANELS.map((p) => powerString(panels[p.id]?.powerAc ?? 0)),
+      raw: SOLAR_PANELS.map((p) => panels[p.id]?.powerAc ?? 0),
     },
     {
       label: T.specificYield,
@@ -123,6 +114,7 @@ export default function TrackingComparison() {
     {
       label: T.dailyEnergy,
       values: SOLAR_PANELS.map((p) => energyString(daily[p.id])),
+      raw: SOLAR_PANELS.map((p) => daily[p.id]),
     },
     {
       label: T.dailyEnergyPerArea,

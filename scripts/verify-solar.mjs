@@ -144,12 +144,9 @@ check(gain > 5 && gain < 80, `two-axis tracking gain of ${gain.toFixed(1)}% is o
 
 // --- three-panel invariants ----------------------------------------------
 //
-// Compared on SPECIFIC yield, not watts. The three mounts have genuinely
-// different areas (13.09, 15.43 and 9.61 m^2), so a larger panel can
-// out-produce a better-aimed one in absolute terms while saying nothing
-// at all about tracking. Per square metre, a panel held square to the sun
-// cannot be beaten by one that is not -- that is the invariant worth
-// asserting, and it is the one the interface is built to demonstrate.
+// All three arrays are the same hardware (8 modules, 13.09 m^2). A panel
+// held square to the sun cannot be beaten, in watts or in W/m^2, by one
+// that is not -- that is the invariant the interface is built to show.
 console.log('\n time     auto W/m²   manual W/m²    fixed W/m²   auto θ   fixed θ');
 
 const manualAngles = { tilt: 35, azimuth: 180 };

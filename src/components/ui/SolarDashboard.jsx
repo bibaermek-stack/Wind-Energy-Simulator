@@ -8,7 +8,7 @@
  *   absolute watts   what this installation actually makes
  *   W/m^2            the same number per square metre of glass
  *
- * All three arrays are identical -- eight modules, 13.09 m^2 -- so a watt
+ * All three arrays are identical -- sixteen modules, 26.14 m^2 -- so a watt
  * is a fair comparison. The bar under each card is still drawn on specific
  * yield, which is the intensive form of that same figure.
  */

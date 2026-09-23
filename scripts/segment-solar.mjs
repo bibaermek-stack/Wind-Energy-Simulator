@@ -1186,6 +1186,12 @@ export async function extractAssembly(assembly, outputPath, { flatten = true, ma
           } else if (applyUnTilt && name === 'SolarPanelFrame') {
             p[1] = 0.15;
           }
+          // The layers above are set absolutely, so a mount's Y offset (the
+          // tracker's standoff) has to be re-applied after them or it is lost
+          // and the glass lands back on the tilt axis.
+          if (applyUnTilt && offsetAfter && /Surface|Backing|Grid|Frame/.test(name)) {
+            p[1] -= offsetAfter[1];
+          }
           const o = ti * 9 + k * 3;
           positions[o] = p[0] * INCH;
           positions[o + 1] = p[1] * INCH;

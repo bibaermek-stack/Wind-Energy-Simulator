@@ -144,7 +144,7 @@ check(gain > 5 && gain < 80, `two-axis tracking gain of ${gain.toFixed(1)}% is o
 
 // --- three-panel invariants ----------------------------------------------
 //
-// All three arrays are the same hardware (16 modules, 26.14 m^2). A panel
+// All three arrays are the same hardware (20 modules, 51.67 m^2). A panel
 // held square to the sun cannot be beaten, in watts or in W/m^2, by one
 // that is not -- that is the invariant the interface is built to show.
 console.log('\n time     auto W/m²   manual W/m²    fixed W/m²   auto θ   fixed θ');

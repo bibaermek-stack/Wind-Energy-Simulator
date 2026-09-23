@@ -72,7 +72,7 @@ function solarFraming() {
 
 /**
  * Framing for hybrid mode: far enough back to hold a 92 m turbine and a
- * 8 m solar array in one frame. They are at true relative scale, so this
+ * 11.5 m solar array in one frame. They are at true relative scale, so this
  * is necessarily a wide shot -- which is itself the point being made.
  */
 function hybridFraming() {

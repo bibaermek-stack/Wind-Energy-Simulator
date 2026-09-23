@@ -126,9 +126,9 @@ The three differ in exactly one thing: **how their orientation is decided.**
 
 | | Panel | Control | Mount | Array |
 |---|---|---|---|---|
-| 1 | **AUTO** | two-axis tracker, follows the sun; switchable off | pole, slew ring, torque tube | 16 modules, 26.14 m² |
-| 2 | **MANUAL** | your tilt/azimuth sliders | front-hinge rack, telescopic arms | 16 modules, 26.14 m² |
-| 3 | **FIXED** | bolted at 35° / 180°, never moves | catalogue ground frame ×2 | 16 modules, 26.14 m² |
+| 1 | **AUTO** | two-axis tracker, follows the sun; switchable off | pole, slew ring, torque tube | 20 modules, 51.67 m² |
+| 2 | **MANUAL** | your tilt/azimuth sliders | front-hinge rack, telescopic arms | 20 modules, 51.67 m² |
+| 3 | **FIXED** | bolted at 35° / 180°, never moves | catalogue ground frame ×2 | 20 modules, 51.67 m² |
 
 All three are integrated every frame from one sun, one sky, one set of
 weather inputs, and each keeps its own energy meter. Switching AUTO
@@ -139,20 +139,25 @@ costs.
 ### Where the geometry comes from
 
 `scripts/build-solar.mjs` writes all three models from `ARRAY` in
-`src/physics/solar/solarSpecs.js`: sixteen standard 60-cell modules
-(0.99 × 1.65 m), two rows of eight. The glass on screen and the aperture
+`src/physics/solar/solarSpecs.js`: twenty current 580 W modules
+(2.278 × 1.134 m, 144 half-cells), two rows of ten in portrait — a standard
+"2P" ground-mount table. Like the turbines, which are real machines of
+their size class rather than scale models, the panels are real-world size:
+a 1.75 m person reaches roughly the fixed table's middle. The glass on screen and the aperture
 the physics integrates are the same numbers.
 
 The fixed panel stands on the supplied catalogue's own ground frame, kept
 as `models-source/solar-fixed-frame.glb`. That frame was built for a
-four-module table, so two of them stand side by side under the 8 m array —
+3.2 m-deep, four-module table, so it is scaled uniformly (×1.43, posts and
+braces together, the 35° geometry unchanged) to a 2P table's 4.58 m depth,
+and two of them stand side by side under the 11.5 m array —
 how a longer fixed row is really installed.
 
 **The auto tracker's mount is generated.** The catalogue has no
 pole-mounted tracker. The script builds it the way real ones are built:
 footing → tapered column → azimuth slew ring → elevation gearbox → round
 torque tube → brackets → rafters → rails → modules. The modules sit
-**0.48 m in front of the tilt axis**, so every piece of steel is behind the
+**0.6 m in front of the tilt axis**, so every piece of steel is behind the
 glass, and the rafters' back face stays further from the axis than the slew
 ring's radius — at a full 90° the lower half of the array hangs past the
 column without touching it. The script throws if that clearance is ever
@@ -161,8 +166,9 @@ model in azimuth leaves the footing looking planted.
 
 ### Same glass, different aim
 
-All three carry the same array: **sixteen modules, 8.06 × 3.32 m, 26.14 m²,
-5.2 kW rated**.
+All three carry the same array: **twenty modules, 11.52 × 4.58 m, 51.67 m²,
+11.6 kWp** — the size class of a commercial two-axis pedestal tracker (its
+column stands 2.74 m to the pivot).
 The mounts differ; the collecting area does not. A watt on the dashboard
 is therefore a fair comparison of orientation, not of size. Specific
 yield (W/m²) is the same number per square metre of glass.
@@ -193,7 +199,8 @@ frame from the start and has no such step to lose it.
 
 Assembly #1's aperture was once measured from the catalogue by projected
 coverage (13.09 m² for eight modules — 1.636 m² each, which is exactly the
-standard 0.99 × 1.65 m module the generator now uses).
+standard 0.99 × 1.65 m 60-cell module of that era; the arrays now use
+today's larger 2.278 × 1.134 m format).
 
 ### Scientific model
 
@@ -297,7 +304,7 @@ HAWT   28.64 MB -> 0.81 MB   (332,180 triangles, geometry unchanged)
 VAWT    0.30 MB -> 0.09 MB   (  3,308 triangles, geometry unchanged)
 small       n/a -> 0.08 MB   (  5,308 triangles, generated)
 solar       n/a -> AUTO/MANUAL/FIXED, ~0.05 MB together
-                   (16 modules, 26.14 m²; only the mounts differ)
+                   (20 modules, 51.67 m²; only the mounts differ)
 ```
 
 The Draco decoder is served from `public/draco/`, so the app needs no CDN.
@@ -385,7 +392,7 @@ charts and readouts stay live; the scene stays smooth.
 - **The three machines stand at true relative scale.** The 1.8 m turbine really
   is a speck beside the 66 m one — the swept-area ratio is 1361:1. That
   contrast is the point, and the camera flies to frame whichever machine you
-  select. Hybrid mode holds the 8 m solar arrays in the same frame, so a wind
+  select. Hybrid mode holds the 11.5 m solar arrays in the same frame, so a wind
   farm dwarfing one PV tracker is visible rather than asserted.
 - **Chart colours** (`#1d4ed8`, `#0d9488`, `#b45309`) are fixed per turbine and
   never reassigned. They were checked for colour-vision separation and contrast

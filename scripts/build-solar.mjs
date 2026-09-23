@@ -130,12 +130,12 @@ function revolve(out, {
 const LAYER = { backing: -0.009, frame: 0.004, cells: 0.014, grid: 0.020 };
 
 /** Aluminium rim width, cell gap (the light lines between cells). */
-const RIM = 0.03;
-const CELL_GAP = 0.012;
+const RIM = 0.035;
+const CELL_GAP = 0.008;
 
 /**
- * The glass: ARRAY.columns x ARRAY.rows portrait modules, each a 6 x 10
- * grid of cells inside an aluminium rim.
+ * The glass: ARRAY.columns x ARRAY.rows portrait modules, each a grid of
+ * cellsAcross x cellsAlong cells inside an aluminium rim.
  *
  * @param {number} zStart  the array's -Z edge, in the tracking frame
  * @param {number} plane   height of the module plane above the tilt axis
@@ -230,32 +230,34 @@ function buildGlass(zStart, plane) {
  * planted while it does.
  */
 const MAST = {
-  padRadius: 0.80,
-  padSkirt: 0.18,
-  padHeight: 0.26,
-  padTopRadius: 0.66,
-  flangeRadius: 0.36,
-  flangeHeight: 0.07,
-  columnBottomRadius: 0.20,
-  columnTopRadius: 0.15,
-  collarRadius: 0.28,     // azimuth slew ring
-  collarHeight: 0.22,
-  neckRadius: 0.13,
+  // Sized like a commercial ~12 kWp pedestal tracker: a half-metre column
+  // on a two-metre pad, carrying ~50 m^2 of modules.
+  padRadius: 1.10,
+  padSkirt: 0.22,
+  padHeight: 0.32,
+  padTopRadius: 0.92,
+  flangeRadius: 0.45,
+  flangeHeight: 0.08,
+  columnBottomRadius: 0.26,
+  columnTopRadius: 0.20,
+  collarRadius: 0.34,     // azimuth slew ring
+  collarHeight: 0.26,
+  neckRadius: 0.17,
   neckLength: 0.30,
-  headHalfWidth: 0.24,    // elevation gearbox, straddles the torque tube
-  headHalfDepth: 0.16,
-  headDrop: 0.21,
-  headRise: 0.14,
-  torqueTubeRadius: 0.075,
-  bracketWidth: 0.08,
-  bracketDepth: 0.16,
-  rafterWidth: 0.07,
-  rafterHeight: 0.08,
+  headHalfWidth: 0.30,    // elevation gearbox, straddles the torque tube
+  headHalfDepth: 0.20,
+  headDrop: 0.25,
+  headRise: 0.18,
+  torqueTubeRadius: 0.10,
+  bracketWidth: 0.10,
+  bracketDepth: 0.20,
+  rafterWidth: 0.08,
+  rafterHeight: 0.10,
   railWidth: 0.05,
-  railHeight: 0.05,
+  railHeight: 0.06,
 
   /** Module plane above the tilt axis. See the clearance check below. */
-  standoff: 0.48,
+  standoff: 0.60,
   /** Under the array's lower edge at a full 90-degree tilt. */
   groundClearance: 0.45,
   minPivotHeight: 2.05,
@@ -300,10 +302,10 @@ function buildMast() {
   // Bearing bosses either side, round about the tilt axis.
   for (const sign of [-1, 1]) {
     const a = sign * MAST.headHalfWidth;
-    const b = sign * (MAST.headHalfWidth + 0.06);
+    const b = sign * (MAST.headHalfWidth + 0.08);
     revolve(column, {
       axis: 'x', centre: [0, pivotY, 0], a0: Math.min(a, b), a1: Math.max(a, b),
-      r0: 0.115, r1: 0.115, capStart: true, capEnd: true,
+      r0: MAST.torqueTubeRadius * 1.5, r1: MAST.torqueTubeRadius * 1.5, capStart: true, capEnd: true,
     });
   }
 
@@ -320,8 +322,8 @@ function buildMast() {
   const rafterTop = railBottom;
   const rafterBottom = rafterTop - MAST.rafterHeight;
 
-  // Four rafters down the slope, each sitting on its own bracket.
-  const rafterXs = [-0.37, -0.13, 0.13, 0.37].map((f) => f * W);
+  // Six rafters down the slope, each sitting on its own bracket: ~2 m bays.
+  const rafterXs = [-0.42, -0.25, -0.085, 0.085, 0.25, 0.42].map((f) => f * W);
   const rafterHalf = D / 2 - 0.12;
   for (const x of rafterXs) {
     const hw = MAST.rafterWidth / 2;
@@ -364,15 +366,23 @@ function buildMast() {
 /**
  * The fixed panel's ground frame, straight from the catalogue.
  *
- * It was built for a four-module-wide table. The array is now twice that,
- * so two of these tables stand side by side -- which is how a longer fixed
- * row is actually installed: identical tables bolted end to end, not one
- * frame stretched.
+ * It was built for a four-module table 3.2 m deep. A real 2P table of
+ * today's 2.28 m modules is 4.58 m deep, so the frame is scaled UNIFORMLY
+ * by the ratio of the two depths -- posts, rafters and braces all grow
+ * together, the 35-degree geometry is unchanged, and the normals need no
+ * correction. Tables then stand side by side along the row, which is how
+ * a longer fixed row is actually installed: identical tables bolted end to
+ * end, not one frame stretched.
  */
+const CATALOGUE_ARRAY_DEPTH = 3.197;
+/** The catalogue array sat this far south of its pivot, at catalogue scale. */
+const CATALOGUE_ARRAY_OFFSET_Z = -0.068;
+
 async function loadFixedFrame(io) {
   const doc = await io.read(FIXED_FRAME);
   const node = doc.getRoot().listNodes().find((n) => n.getName() === 'SolarPanelBase');
-  const pivot = node.getExtras().pivot;
+  const k = ARRAY.depthM / CATALOGUE_ARRAY_DEPTH;
+  const pivot = node.getExtras().pivot.map((v) => v * k);
   const triangles = [];
   let minX = Infinity;
   let maxX = -Infinity;
@@ -384,9 +394,9 @@ async function loadFixedFrame(io) {
     for (let i = 0; i < count; i += 3) {
       const p = [];
       const n = [];
-      for (let k = 0; k < 3; k++) {
-        const vi = idx ? idx.getScalar(i + k) : i + k;
-        const v = pos.getElement(vi, []);
+      for (let j = 0; j < 3; j++) {
+        const vi = idx ? idx.getScalar(i + j) : i + j;
+        const v = pos.getElement(vi, []).map((c) => c * k);
         p.push(v);
         n.push(nor ? nor.getElement(vi, []) : [0, 1, 0]);
         minX = Math.min(minX, v[0]);
@@ -402,7 +412,7 @@ async function loadFixedFrame(io) {
     const dx = (c - (copies - 1) / 2) * tableWidth - (minX + maxX) / 2;
     for (const t of triangles) out.push({ p: t.p.map((q) => [q[0] + dx, q[1], q[2]]), n: t.n });
   }
-  return { pivot, triangles: out, copies };
+  return { pivot, triangles: out, copies, scale: k, offsetZ: CATALOGUE_ARRAY_OFFSET_Z * k };
 }
 
 // ---------------------------------------------------------------------------
@@ -500,10 +510,10 @@ async function build(kind, io) {
     const frame = await loadFixedFrame(io);
     root.addChild(node('SolarPanelBase', frame.triangles));
     trackerAt = frame.pivot;
-    // The catalogue array sat 7 cm south of its pivot; keep it there so
-    // it still lands on the frame's rails.
-    zStart = -0.068 - ARRAY.depthM / 2;
-    extra = { tables: frame.copies };
+    // The catalogue array sat a little south of its pivot; keep it there
+    // so it still lands on the frame's rails.
+    zStart = frame.offsetZ - ARRAY.depthM / 2;
+    extra = { tables: frame.copies, frameScale: +frame.scale.toFixed(3) };
   }
 
   const tracker = node('SolarPanelTrackingAssembly', null, trackerAt);

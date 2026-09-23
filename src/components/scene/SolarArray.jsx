@@ -227,7 +227,7 @@ function AdjustableRack({ spec, trackerRef }) {
   return (
     <group ref={yawRef}>
       {/* Front L-brackets: the edge that does not move. Corner feet as in
-          the reference photograph, plus one mid-span on the 8 m array. */}
+          the reference photograph, plus mid-span feet on the 11.5 m array. */}
       {rack.hingeXs.map((x) => (
         <group key={`hinge${x}`} position={[x, 0, 0]}>
           <mesh material={metal} position={[0, 0.01, 0.02]} castShadow receiveShadow>

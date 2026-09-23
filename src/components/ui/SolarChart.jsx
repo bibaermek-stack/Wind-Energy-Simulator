@@ -15,7 +15,7 @@
  *   absolute W     what each installation makes -- the practical answer
  *   specific W/m^2 what each makes per square metre -- the fair comparison
  *
- * The arrays are identical (sixteen modules, 26.14 m^2), so the absolute
+ * The arrays are identical (twenty modules, 51.67 m^2), so the absolute
  * chart is already a fair comparison of aim. The specific chart is the
  * same data per square metre.
  */

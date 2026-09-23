@@ -17,12 +17,12 @@
  * ---------------------------------------------------------------------------
  * ON THE THREE MOUNTS
  * ---------------------------------------------------------------------------
- * All three carry the SAME array: assembly #1 from the catalogue, eight
- * modules, 13.09 m^2. The mounts differ, the glass does not.
+ * All three carry the SAME array (`ARRAY` below), at real-world size:
+ * twenty 580 W modules, 11.52 x 4.58 m, 51.67 m^2, ~11.6 kWp. The mounts differ, the glass does not.
  *
- *   auto    generated pole and pivot (the catalogue has no tracker)
+ *   auto    generated pole, slew ring, torque tube and rails
  *   manual  front-hinge rack, telescopic rear arms drawn at runtime
- *   fixed   the catalogue's own ground frame, bolted at 35° / 180°
+ *   fixed   the catalogue's own ground frame (two tables), 35° / 180°
  *
  * Because the collecting area is identical, a watt is a watt: the panel
  * that leads on the dashboard is the one that is better aimed, not the
@@ -32,9 +32,9 @@
  * ---------------------------------------------------------------------------
  * ON THE PARAMETERS
  * ---------------------------------------------------------------------------
- * Aperture areas and dimensions are MEASURED from the actual geometry by
- * scripts/segment-solar.mjs (coverage measurement -- see that file for why
- * a sum of triangle areas is wrong on this model). Efficiency, temperature
+ * Aperture and dimensions follow from the module count and the standard
+ * 2.278 x 1.134 m module; scripts/build-solar.mjs draws the glass from the
+ * same `ARRAY`, so what is on screen is what is integrated. Efficiency, temperature
  * coefficient, NOCT and inverter efficiency are EXAMPLE values typical of a
  * modern monocrystalline installation; the catalogue arrived without a
  * datasheet. The interface says so wherever they appear.
@@ -82,9 +82,40 @@ export const TEMPERATURE_DEFAULT = 20;
 export const TEMPERATURE_MIN = -10;
 export const TEMPERATURE_MAX = 45;
 
+/**
+ * The array all three panels carry, at real-world size -- the same way the
+ * turbines are real machines of their class and not scale models.
+ *
+ * Module: the 144 half-cell, 182 mm-wafer format that dominates current
+ * utility and commercial installations -- 2278 x 1134 mm, ~580 Wp at 22.5 %.
+ * Twenty of them, two rows in portrait ("2P"), is the layout of a standard
+ * ground-mount table, and at 11.5 x 4.6 m / ~11.7 kWp it is also the size
+ * class of commercial two-axis pedestal trackers (40-60 m^2 of modules on a
+ * ~3 m column). scripts/build-solar.mjs draws the glass from exactly these
+ * numbers, so the aperture below and the geometry on screen cannot drift
+ * apart.
+ */
+export const ARRAY = {
+  columns: 10,
+  rows: 2,
+  moduleWidthM: 1.134,
+  moduleDepthM: 2.278,
+  /** Clamp gap between neighbouring modules. */
+  moduleGapM: 0.02,
+  /** 144 half-cells: 6 across, 24 along the long side. */
+  cellsAcross: 6,
+  cellsAlong: 24,
+};
+ARRAY.moduleCount = ARRAY.columns * ARRAY.rows;
+ARRAY.widthM = +(ARRAY.columns * ARRAY.moduleWidthM + (ARRAY.columns - 1) * ARRAY.moduleGapM).toFixed(2);
+ARRAY.depthM = +(ARRAY.rows * ARRAY.moduleDepthM + (ARRAY.rows - 1) * ARRAY.moduleGapM).toFixed(2);
+/** Module area, gaps excluded: 20 x 2.583 = 51.67 m^2. */
+ARRAY.apertureArea = +(ARRAY.moduleCount * ARRAY.moduleWidthM * ARRAY.moduleDepthM).toFixed(2);
+
 /** Electrical parameters shared by all three panels. */
 const COMMON = {
-  efficiency: 0.20,
+  // 580 Wp on 2.583 m^2 of module: a current half-cell mono module.
+  efficiency: 0.225,
   temperatureCoefficient: -0.004,
   noct: 45,
   inverterEfficiency: 0.96,
@@ -95,6 +126,15 @@ const COMMON = {
 
 /** Rated DC power follows from aperture and efficiency at STC. */
 const rated = (apertureArea) => Math.round(apertureArea * STC_IRRADIANCE * COMMON.efficiency);
+
+/** Size and rating: identical on all three, by construction. */
+const SIZE = {
+  apertureArea: ARRAY.apertureArea,
+  widthM: ARRAY.widthM,
+  depthM: ARRAY.depthM,
+  moduleCount: ARRAY.moduleCount,
+  ratedPower: rated(ARRAY.apertureArea),
+};
 
 /**
  * @typedef {'auto'|'manual'|'fixed'} PanelMode
@@ -124,23 +164,23 @@ export const SOLAR_PANELS = [
         + 'cos θ stays close to 1 and the panel collects all it can.',
     },
 
-    // Same eight-module array as the other two, on a generated pole.
-    // scripts/segment-solar.mjs --extract 1 --mast
-    // The modules sit 0.48 m in front of the tilt axis so a steep evening
-    // tilt cannot drive the glass through the column.
-    apertureArea: 13.09,      // measured
-    widthM: 4.10,
-    depthM: 3.20,
-    heightM: 3.65,
-    moduleCount: 8,
+    // The shared twenty-module array on a generated pole (build-solar.mjs).
+    // The modules sit 0.6 m in front of the tilt axis, on rails, rafters
+    // and brackets, so no steel stands proud of the glass and a steep
+    // evening tilt cannot drive the array through the column.
+    ...SIZE,
+    // Standing height at 90 degrees: the 2.74 m pivot plus half the depth.
+    heightM: 5.03,
     ...COMMON,
-    ratedPower: rated(13.09),
 
     scene: {
       modelUrl: '/models/solar-auto.glb',
-      position: [36, 0, 45],
+      // 14.5 m centres: the tracker's corners sweep a 6.2 m radius as it
+      // turns in azimuth, and the manual rack is 5.9 m either side of its
+      // centre, so this leaves a clear 2.4 m between them at worst.
+      position: [31, 0, 45],
       rotationY: 0,
-      labelHeight: 4.3,
+      labelHeight: 5.8,
     },
   },
 
@@ -167,7 +207,7 @@ export const SOLAR_PANELS = [
         + 'the best morning angle is the wrong evening one.',
     },
 
-    // Assembly #1's array, on an adjustable ground rack.
+    // The shared array, on an adjustable ground rack.
     //
     // The catalogue's own legs under this array are fixed: they hold it at
     // one authored angle and there is no mechanism in them. The reference
@@ -177,43 +217,40 @@ export const SOLAR_PANELS = [
     // moves the tilt axis to the array's front edge, and the rack itself is
     // drawn at runtime by SolarArray.jsx, because baked geometry cannot
     // change length. The modules and rails are the supplied geometry.
-    apertureArea: 13.09,      // measured
-    widthM: 4.10,
-    depthM: 3.20,
+    ...SIZE,
     // Standing height at 90 degrees: the hinge plus the array stood upright.
-    heightM: 3.50,
-    moduleCount: 8,
+    heightM: 4.88,
     ...COMMON,
-    ratedPower: rated(13.09),
 
     scene: {
       modelUrl: '/models/solar-manual.glb',
       // The model's origin is under the HINGE, not under the array's
       // centre, so this is offset half the array's depth towards the
       // camera to leave the panel itself centred in the row.
-      position: [45.5, 0, 46.6],
+      position: [45.5, 0, 47.29],
       rotationY: 0,
-      labelHeight: 3.9,
+      labelHeight: 5.4,
 
       /**
        * The runtime rack. Metres, in the model's own frame: origin on the
        * ground under the hinge pin, array reaching back in -Z.
        *
-       * `hingeHeight` must match the RACK constant in
-       * scripts/segment-solar.mjs -- that script puts the tilt axis there,
+       * `hingeHeight` must match the manual tracker height in
+       * scripts/build-solar.mjs -- that script puts the tilt axis there,
        * and this draws the hardware that holds it up.
        */
       rack: {
         hingeHeight: 0.3,
-        // Rear edge of the 8-module array is at z = -3.20 m. Attach just
-        // inboard of that so the arms meet the back rail, not the middle
-        // of the glass -- otherwise a steep tilt leaves the rear flying.
-        attachDistance: 3.05,
-        // Half-width of the modules is 2.05 m. Sitting 13 cm outside that
-        // keeps the telescopic arms in silhouette from the teaching camera
-        // instead of parking them behind the laminate.
-        legSpan: 2.18,
-        hingeSpan: 1.90,
+        // Rear edge of the array is at z = -4.58 m. Attach just inboard of
+        // that so the arms meet the back rail, not the middle of the
+        // glass -- otherwise a steep tilt leaves the rear flying.
+        attachDistance: 4.43,
+        // Half-width of the modules is 5.76 m. The outer arms sit 13 cm
+        // outside that, so they stay in silhouette from the teaching
+        // camera; the inner pairs split the 11.5 m span into ~3.8 m bays,
+        // as on a real rack, and hide behind the laminate.
+        legXs: [-5.89, -1.95, 1.95, 5.89],
+        hingeXs: [-5.6, -1.95, 1.95, 5.6],
         sleeveLength: 0.22,
       },
     },
@@ -243,20 +280,17 @@ export const SOLAR_PANELS = [
         + 'badly at both ends of the day.',
     },
 
-    // Same eight-module array, on the catalogue's own ground frame.
-    apertureArea: 13.09,      // measured
-    widthM: 4.10,
-    depthM: 3.20,
-    heightM: 2.18,
-    moduleCount: 8,
+    // The shared array, on the catalogue's own ground frame -- scaled up
+    // to a 2P table's real depth, two tables side by side.
+    ...SIZE,
+    heightM: 2.97,
     ...COMMON,
-    ratedPower: rated(13.09),
 
     scene: {
       modelUrl: '/models/solar-fixed.glb',
-      position: [55, 0, 45],
+      position: [60, 0, 45],
       rotationY: 0,
-      labelHeight: 3.4,
+      labelHeight: 3.9,
     },
   },
 ];
@@ -285,6 +319,6 @@ export const SOLAR_VIEW = {
   // on the left now stands over three metres tall at steep tilt, and aiming
   // at the row's geometric centre left it climbing out of the top of the
   // frame every morning and evening.
-  cameraOffset: [2, 10, 32],
-  target: [45.5, 2.6, 45],
+  cameraOffset: [2, 18, 66],
+  target: [45.5, 3.0, 45],
 };

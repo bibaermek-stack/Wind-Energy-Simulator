@@ -126,9 +126,9 @@ The three differ in exactly one thing: **how their orientation is decided.**
 
 | | Panel | Control | Mount | Array |
 |---|---|---|---|---|
-| 1 | **AUTO** | two-axis tracker, follows the sun; switchable off | pole, concrete footing | 8 modules, 13.09 m² |
-| 2 | **MANUAL** | your tilt/azimuth sliders | front-hinge rack, telescopic arms | 8 modules, 13.09 m² |
-| 3 | **FIXED** | bolted at 35° / 180°, never moves | catalogue ground frame | 8 modules, 13.09 m² |
+| 1 | **AUTO** | two-axis tracker, follows the sun; switchable off | pole, slew ring, torque tube | 20 modules, 51.67 m² |
+| 2 | **MANUAL** | your tilt/azimuth sliders | front-hinge rack, telescopic arms | 20 modules, 51.67 m² |
+| 3 | **FIXED** | bolted at 35° / 180°, never moves | catalogue ground frame ×2 | 20 modules, 51.67 m² |
 
 All three are integrated every frame from one sun, one sky, one set of
 weather inputs, and each keeps its own energy meter. Switching AUTO
@@ -138,22 +138,37 @@ costs.
 
 ### Where the geometry comes from
 
-The modules, laminate and rails of all three panels are the supplied
-catalogue geometry, cut out by `scripts/segment-solar.mjs` and otherwise
-untouched — no replacement models, no billboards.
+`scripts/build-solar.mjs` writes all three models from `ARRAY` in
+`src/physics/solar/solarSpecs.js`: twenty current 580 W modules
+(2.278 × 1.134 m, 144 half-cells), two rows of ten in portrait — a standard
+"2P" ground-mount table. Like the turbines, which are real machines of
+their size class rather than scale models, the panels are real-world size:
+a 1.75 m person reaches roughly the fixed table's middle. The glass on screen and the aperture
+the physics integrates are the same numbers.
 
-One thing is generated: **the auto tracker's column.** The catalogue has no
-pole-mounted tracker in it. Every one of its nine assemblies is a ground
-frame, so there was nothing to cut a pedestal from. The script therefore
-builds the column, footing and pivot head, and sets the catalogue's own
-array on top of them. Every part of the column is a surface of revolution
-about its own axis, so that turning the model in azimuth leaves the footing
-looking exactly as it did — the base reads as planted while the array
-swings above it.
+The fixed panel stands on the supplied catalogue's own ground frame, kept
+as `models-source/solar-fixed-frame.glb`. That frame was built for a
+3.2 m-deep, four-module table, so it is scaled uniformly (×1.43, posts and
+braces together, the 35° geometry unchanged) to a 2P table's 4.58 m depth,
+and two of them stand side by side under the 11.5 m array —
+how a longer fixed row is really installed.
+
+**The auto tracker's mount is generated.** The catalogue has no
+pole-mounted tracker. The script builds it the way real ones are built:
+footing → tapered column → azimuth slew ring → elevation gearbox → round
+torque tube → brackets → rafters → rails → modules. The modules sit
+**0.6 m in front of the tilt axis**, so every piece of steel is behind the
+glass, and the rafters' back face stays further from the axis than the slew
+ring's radius — at a full 90° the lower half of the array hangs past the
+column without touching it. The script throws if that clearance is ever
+lost. Everything below the head is a surface of revolution, so turning the
+model in azimuth leaves the footing looking planted.
 
 ### Same glass, different aim
 
-All three carry assembly #1 from the catalogue: **eight modules, 13.09 m²**.
+All three carry the same array: **twenty modules, 11.52 × 4.58 m, 51.67 m²,
+11.6 kWp** — the size class of a commercial two-axis pedestal tracker (its
+column stands 2.74 m to the pivot).
 The mounts differ; the collecting area does not. A watt on the dashboard
 is therefore a fair comparison of orientation, not of size. Specific
 yield (W/m²) is the same number per square metre of glass.
@@ -162,37 +177,30 @@ yield (W/m²) is the same number per square metre of glass.
 
 `solar pahels.glb` is a manufacturer's catalogue — ~18 mounting products
 on one plot, 65 MB, no hierarchy, geometry batched by material. It cannot
-be re-parented the way the HAWT rotor was.
-`scripts/segment-solar.mjs` rebuilds three assemblies from the triangles up:
+be re-parented the way the HAWT rotor was, so
+`scripts/segment-solar.mjs` originally rebuilt assemblies from the triangles
+up. `scripts/build-solar.mjs` now emits the same hierarchy:
 
 ```
 SolarPanelRoot                 azimuth, rotates about Y
   SolarPanelBase               posts + footings, stay planted
     SolarPanelFooting          AUTO only: the generated concrete pad
   SolarPanelTrackingAssembly   tilt, origin on the torque axis
-    SolarPanelYoke             AUTO only: the generated pivot head
+    SolarPanelYoke             AUTO only: torque tube, brackets, rafters, rails
     SolarPanelSurface          module faces
     SolarPanelFrame            rails and clamps
 ```
 
-On AUTO, `--mast` replaces the catalogue's ground frame with a generated
-column and keeps everything else. Two details matter there. The pivot is
-lifted to half the array's slope length plus a clearance, because the array
-rotates about its own centre and would otherwise scythe into the ground at
-the slider's 90°. And the frame group is re-filtered on all three vertices
-rather than on the triangle's midpoint: the catalogue draws a metre-long
-brace as one long thin triangle whose midpoint lands inside the frame slab,
-so the centroid test let the old pedestal's bracing ride along with the
-array as thin legs reaching into empty air.
+The earlier tracker set the glass exactly on the tilt axis. The generator
+meant to push it 0.48 m forward, but flattening the module layers overwrote
+that offset, so the pivot head's cheek plates and the torque tube stood
+proud of the sunny face. The rebuilt mount is laid out in the tracker's own
+frame from the start and has no such step to lose it.
 
-Aperture is measured by projecting module faces onto the array plane and
-counting covered cells — a sum of triangle areas double-counts the
-coincident layers these models are built from. That measurement doubles as
-a **quality check on the segmentation**: assemblies #3 and #6 measured
-11.56 m² against a 17.51 m² bounding box and 3.33 against 6.74, and both
-turned out on inspection to be broken clusters that had swept in stray
-posts. Assembly #1, used for all three panels, measures 13.09 m² against
-13.18 m² by hand: 99.3 % agreement.
+Assembly #1's aperture was once measured from the catalogue by projected
+coverage (13.09 m² for eight modules — 1.636 m² each, which is exactly the
+standard 0.99 × 1.65 m 60-cell module of that era; the arrays now use
+today's larger 2.278 × 1.134 m format).
 
 ### Scientific model
 
@@ -279,8 +287,7 @@ lists what *is* in the file.
 ```
 npm run models:optimize   # compress the two supplied wind models
 npm run models:small      # generate the third turbine
-npm run models:solar      # cut the three panels out of the catalogue
-                          # (AUTO also gets its generated column)
+npm run models:solar      # build the three panels from ARRAY in solarSpecs.js
 ```
 
 `scripts/optimize-models.mjs` reads untouched copies from `models-source/` and
@@ -296,8 +303,8 @@ does the job:
 HAWT   28.64 MB -> 0.81 MB   (332,180 triangles, geometry unchanged)
 VAWT    0.30 MB -> 0.09 MB   (  3,308 triangles, geometry unchanged)
 small       n/a -> 0.08 MB   (  5,308 triangles, generated)
-solar  65.65 MB -> AUTO/MANUAL/FIXED from assembly #1
-                   (8 modules, 13.09 m²; only the mounts differ)
+solar       n/a -> AUTO/MANUAL/FIXED, ~0.05 MB together
+                   (20 modules, 51.67 m²; only the mounts differ)
 ```
 
 The Draco decoder is served from `public/draco/`, so the app needs no CDN.
@@ -306,16 +313,13 @@ The Draco decoder is served from `public/draco/`, so the app needs no CDN.
 
 `models-source/solar_catalogue_original.glb` (the 65 MB catalogue) is
 **gitignored**. GitHub warns above 50 MB for a single file and it would take
-the repository from 32 MB to about 100 MB, for a file the app never loads —
-only `npm run models:solar` reads it, and its 0.35 MB output *is* committed.
+the repository from 32 MB to about 100 MB, for a file the app never loads.
 
-So the app runs fine from a fresh clone. Only re-extracting the tracker needs
-the source: drop the original back at that path (or point `SOLAR_SOURCE` at
-it) and re-run.
-
-```
-SOLAR_SOURCE="/path/to/solar pahels.glb" npm run models:solar
-```
+Nothing in the build needs it any more: the one piece of catalogue geometry
+still in use, the fixed ground frame, is committed as
+`models-source/solar-fixed-frame.glb`, and `npm run models:solar` runs from
+a fresh clone. Only `scripts/segment-solar.mjs`, for inspecting other
+catalogue assemblies, needs the original (`SOLAR_SOURCE=...`).
 
 The two wind originals are small enough to commit and are in the repository.
 
@@ -337,7 +341,8 @@ scripts/
   generate-small-turbine.mjs   builds turbine 3 and exports it to .glb
   airfoil.mjs                  NACA 4-digit section generator
   optimize-models.mjs          Draco compression for the supplied models
-  segment-solar.mjs            cuts the three panels out of the catalogue GLB
+  build-solar.mjs              builds the three solar panel models
+  segment-solar.mjs            inspects / cuts assemblies from the catalogue GLB
   verify-physics.mjs           runnable audit of the wind power model
   verify-solar.mjs             runnable audit of the solar power model
 src/
@@ -387,7 +392,7 @@ charts and readouts stay live; the scene stays smooth.
 - **The three machines stand at true relative scale.** The 1.8 m turbine really
   is a speck beside the 66 m one — the swept-area ratio is 1361:1. That
   contrast is the point, and the camera flies to frame whichever machine you
-  select. Hybrid mode holds the 4 m solar array in the same frame, so a wind
+  select. Hybrid mode holds the 11.5 m solar arrays in the same frame, so a wind
   farm dwarfing one PV tracker is visible rather than asserted.
 - **Chart colours** (`#1d4ed8`, `#0d9488`, `#b45309`) are fixed per turbine and
   never reassigned. They were checked for colour-vision separation and contrast

@@ -35,9 +35,23 @@ export const MODES = {
     label: { kk: 'Гибрид', en: 'Hybrid' },
     sublabel: { kk: 'Жел + Күн', en: 'Wind + Solar' },
   },
+  /**
+   * The printed STEM boxes: a desk-scale model you assemble part by part
+   * and then run. It has its own scene (a table, not the landscape) and
+   * its own bench-scale engine, so it contains neither full-size source.
+   */
+  box: {
+    id: 'box',
+    accent: '#7c3aed',
+    hasWind: false,
+    hasSolar: false,
+    isBox: true,
+    label: { kk: 'STEM бокс', en: 'STEM box' },
+    sublabel: { kk: 'Бокс симуляциясы', en: 'Box simulation' },
+  },
 };
 
-export const MODE_ORDER = ['wind', 'solar', 'hybrid'];
+export const MODE_ORDER = ['wind', 'solar', 'hybrid', 'box'];
 
 export const DEFAULT_MODE = 'wind';
 
@@ -52,6 +66,7 @@ export const MODE_TABS = {
   wind: ['live', 'charts', 'compare', 'theory'],
   solar: ['live', 'charts', 'compare', 'flow', 'theory'],
   hybrid: ['live', 'flow', 'theory'],
+  box: ['live', 'theory'],
 };
 
 export function modeOf(id) {

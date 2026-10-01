@@ -5,8 +5,11 @@ Three wind turbines of different types stand in one landscape at true relative
 scale, and three solar panels — cut from the supplied catalogue model — share
 the same site, differing only in how their orientation is decided: one tracks
 the sun, one follows your sliders, one never moves. A mode switch at the top
-selects **wind**, **solar**, or **hybrid**; the wind simulation is exactly the
-one that existed before the solar work, and hybrid runs everything at once.
+selects **wind**, **solar**, **hybrid** or **STEM box**; the wind simulation
+is exactly the one that existed before the solar work, and hybrid runs
+everything at once. STEM box puts the two printed classroom kits — a tracking
+solar box and a wind generator box — on a table, where they are assembled
+part by part from the real print file and then run.
 
 Interface language is Kazakh, with the standard scientific vocabulary left in
 English (HAWT, VAWT, Cp, RPM, m/s, kW, Betz, PV, DNI) so the readouts map
@@ -234,6 +237,59 @@ aperture.
 
 ---
 
+## STEM box mode — the printed kits
+
+**СТЕМ бокс** shows the two desk kits from
+`models-source/stem_boxes_X1E.3mf` (Bambu Lab X1E, PETG, no supports):
+*Tracking Solar* (S01–S14, 33 parts) and *Wind Generator* (W01–W26, 37
+parts), on a classroom table at true size (each box is about 25 cm long).
+
+### The plan, and how each part of it is done
+
+| Goal | How |
+|---|---|
+| Show the boxes exactly as in the reference drawing | Every printed part is real geometry from the 3MF, one node per part (`scripts/build-stem-boxes.mjs` → `public/models/stem-boxes.glb`, 1.4 MB). The 3MF only knows how parts lie on the **print bed**, so `src/stem/boxAssembly.js` gives each part its assembled pose, worked out from the parts' own features (see below). |
+| Assembly animation | `assembly` runs 0 → 1 per box. At 0 every part waits at an offset from its final pose — the exploded drawing, with part codes floating beside each part. Parts fly in step by step (10 steps solar, 11 wind) with a step list that ticks off as it goes. Play / reverse / step back and forth / scrub / speed. |
+| Work with the devices in the box | Once built, the boxes run. **Solar**: a lamp travels the "sun path" under the dome; the tracker (four LDRs behind a cross shade, pan and tilt servos) turns to it. Readouts: P, U, I, θ, irradiance, distance, pan/tilt, and what a flat fixed panel would make. **Wind**: a desk fan blows; the nacelle weathervanes into the wind, the rotor spins up with its time constant, the DC-motor generator gives U = kₑω, and an LED lights above 2 V. |
+| Take the devices out and run them | "Құрылғыны шығару" lifts the tracker or the whole turbine (clamp, sleeve, tower, nacelle, rotor) out onto the table, still working. For the tracker the lamp is now further away, so the 1/d² drop in power is visible on the dashboard. |
+
+### How the assembled poses were found
+
+The print file has no assembly, so each pose was derived from geometry and
+checked by fit:
+
+- wall panels sit in the 3.5 mm slots of the corner posts — slot centre
+  lines measured from cross-sections of the base at x = ±86.5, z = ±120 mm;
+- the top rim's locating holes match the post pins at ±82.7 mm;
+- a dome rib's tenon (local x 47.7–55.7 mm) drops into a rim socket, and
+  its upper end then lands at r = 8.6 mm, y = 192.5–203.3 mm — exactly the
+  10.8 mm-deep cross slots under the sun hub (S11);
+- the wind guard's legs and arcs meet in half-lap joints, and the crown's
+  bolt holes line up with the arcs' (one side is mirrored so the laps are
+  complementary);
+- copies the slicer laid on the bed turned (blade W26 #2, clamps W07C) are
+  matched to their siblings by vertex comparison and pre-rotated.
+
+Two things are not in the print file and are drawn separately: the
+tracker's electronics (servos, bracket, mini module, LDR cross) and the
+lamp and fan that play the sun and the wind. The turbine and the solar deck
+are shown in the drawing's light grey; everything else keeps its filament
+colour (#3B3F45 body, #F5C400 solar, #1F8FD1 wind).
+
+### Bench-scale physics
+
+`src/stem/stemEngine.js` uses the same equations as the full-size modes at
+desk scale: a 110 × 70 mm, 18 % module (P = η·A·E·cos θ, lamp E ∝ 1/d²), and
+a 0.204 m rotor (P = ½ρAv³·Cp(λ), Cp max 0.26 at λ = 3.2, cut-in 1.6 m/s,
+kₑ = 0.028 V·s/rad, 60 % generator). These are example values for typical
+kit parts; the interface says so.
+
+```
+npm run models:stem    # 3MF -> public/models/stem-boxes.glb
+```
+
+---
+
 ## How the rotors are made to turn independently
 
 All three models ship their rotor as a **separate node**, so no mesh surgery was
@@ -288,6 +344,7 @@ lists what *is* in the file.
 npm run models:optimize   # compress the two supplied wind models
 npm run models:small      # generate the third turbine
 npm run models:solar      # build the three panels from ARRAY in solarSpecs.js
+npm run models:stem       # the STEM box print file -> one node per part
 ```
 
 `scripts/optimize-models.mjs` reads untouched copies from `models-source/` and
@@ -342,11 +399,12 @@ scripts/
   airfoil.mjs                  NACA 4-digit section generator
   optimize-models.mjs          Draco compression for the supplied models
   build-solar.mjs              builds the three solar panel models
+  build-stem-boxes.mjs         STEM box 3MF -> GLB, one node per printed part
   segment-solar.mjs            inspects / cuts assemblies from the catalogue GLB
   verify-physics.mjs           runnable audit of the wind power model
   verify-solar.mjs             runnable audit of the solar power model
 src/
-  modes/energyModes.js         WIND | SOLAR | HYBRID registry
+  modes/energyModes.js         WIND | SOLAR | HYBRID | BOX registry
   physics/
     constants.js               ρ, Betz limit, slider range
     windPower.js               the wind power model — pure functions
@@ -374,6 +432,15 @@ src/
     TurbineComparison.jsx  TheoryPanel.jsx  primitives.jsx
     SolarControls.jsx  SolarDashboard.jsx  SolarChart.jsx
     TrackingComparison.jsx  SolarTheory.jsx  EnergyFlow.jsx
+  stem/
+    boxAssembly.js             assembled pose + exploded offset + step of every printed part
+    stemBoxes.js               GLB + table -> posed pivots
+    stemEngine.js              bench-scale tracker and turbine physics
+    boxStore.js                assembly progress, device in/out, telemetry
+    partNames.js               Kazakh part names by printed code
+  components/stem/
+    StemBoxScene.jsx           table, boxes, assembly animation, lamp, fan
+    StemBoxPanels.jsx          rails: build controls, readings, steps, theory
   i18n/strings.js              all interface copy
   utils/format.js              Kazakh number formatting
 ```

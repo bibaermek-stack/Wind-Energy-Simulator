@@ -15,7 +15,8 @@
     "models": "npm run models:optimize && npm run models:small && npm run models:solar && npm run models:stem",
     "verify:physics": "node scripts/verify-physics.mjs",
     "verify:solar": "node scripts/verify-solar.mjs",
-    "verify": "npm run verify:physics && npm run verify:solar"
+    "verify:stem": "node scripts/verify-stem.mjs",
+    "verify": "npm run verify:physics && npm run verify:solar && npm run verify:stem"
   },
   "dependencies": {
     "@react-three/drei": "^9.122.0",

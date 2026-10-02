@@ -34,27 +34,24 @@ import {
   stemEngine, lampPosition, TRACKER, PAN_OFFSET,
 } from '../../stem/stemEngine.js';
 import { useBox } from '../../stem/boxStore.js';
+import { OUT_OFFSETS, TABLE_Y } from '../../stem/boxLayout.js';
 import { T } from '../../i18n/strings.js';
 
 const MODEL_URL = '/models/stem-boxes.glb';
 const DRACO_PATH = '/draco/';
 
 /** Feet bottoms sit on the table top (y = 0). */
-const BOX_LIFT = 42.75 * MM;
+const BOX_LIFT = -TABLE_Y * MM;
 
 export const BOX_LAYOUT = {
   solar: { position: [-0.2, BOX_LIFT, 0], table: SOLAR_PARTS },
   wind: { position: [0.22, BOX_LIFT, 0], table: WIND_PARTS },
 };
 
-/**
- * Where each device is set down when taken out, relative to where it
- * stands in the box (mm, box frame). The y term drops it from the deck to
- * the table top.
- */
+/** Where each device is set down when taken out (see boxLayout.js). */
 const OUT = {
-  solar: new THREE.Vector3(-110, -33.75, 230),
-  wind: new THREE.Vector3(230, -26.75, 140),
+  solar: new THREE.Vector3(...OUT_OFFSETS.solar),
+  wind: new THREE.Vector3(...OUT_OFFSETS.wind),
 };
 
 /**
@@ -185,7 +182,7 @@ function Fan({ fanRef, bladesRef }) {
   const blade = useMemo(() => new THREE.MeshStandardMaterial({
     color: '#7fb8e6', roughness: 0.3, transparent: true, opacity: 0.85,
   }), []);
-  const hubY = WIND_PIVOTS.hubHeight + 42.75;
+  const hubY = WIND_PIVOTS.hubHeight - TABLE_Y;
   return (
     <group ref={fanRef}>
       {/* Faces -z (towards the turbine) in its own frame. */}
@@ -365,7 +362,7 @@ function Box({ id }) {
       const r = 300;
       fanRef.current.position.set(
         (base.x + Math.sin(dir) * r) * MM,
-        (-42.75) * MM,
+        TABLE_Y * MM,
         (base.z + Math.cos(dir) * r) * MM,
       );
       fanRef.current.rotation.y = dir;

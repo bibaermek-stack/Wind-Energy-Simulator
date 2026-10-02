@@ -11,6 +11,9 @@
  * src/stem/boxAssembly.js.
  */
 
+import { SOLAR_DECK } from './boxAssembly.js';
+import { AXIS_ABOVE_DECK } from './trackerGeometry.js';
+
 const DEG = Math.PI / 180;
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
@@ -18,8 +21,8 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 // solar
 // ---------------------------------------------------------------------------
 export const TRACKER = {
-  /** Pan/tilt pivot above the deck centre. */
-  pivot: [0, 66, 33.5],
+  /** Pan/tilt pivot above the deck centre (see trackerGeometry.js). */
+  pivot: [SOLAR_DECK.centre[0], SOLAR_DECK.centre[1] + AXIS_ABOVE_DECK, SOLAR_DECK.centre[2]],
   /** Mini module: 110 x 70 mm of cells, 18 % -- a typical "6 V 1.5 W" board. */
   cellArea: 0.110 * 0.070,
   efficiency: 0.18,
@@ -31,7 +34,8 @@ export const TRACKER = {
 
 /** The lamp's path: a semicircle under the sun hub, east (+x) to west. */
 export const LAMP = {
-  centre: [0, 12, 33.15],
+  /** In the plane through the hub: the rim's centre line, z = 33.37. */
+  centre: [0, 12, 33.37],
   radius: 168,
   /** Irradiance on a square-on surface at `refDistance` with the lamp at 100 %. */
   refIrradiance: 800,

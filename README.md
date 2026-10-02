@@ -18,7 +18,7 @@ directly onto the textbook literature.
 ```
 npm install
 npm run models      # prepare the .glb models (only needed once)
-npm run verify      # audit both power models
+npm run verify      # audit both power models and the STEM box assembly
 npm run dev         # http://localhost:5178
 ```
 
@@ -253,25 +253,53 @@ parts), on a classroom table at true size (each box is about 25 cm long).
 | Work with the devices in the box | Once built, the boxes run. **Solar**: a lamp travels the "sun path" under the dome; the tracker (four LDRs behind a cross shade, pan and tilt servos) turns to it. Readouts: P, U, I, θ, irradiance, distance, pan/tilt, and what a flat fixed panel would make. **Wind**: a desk fan blows; the nacelle weathervanes into the wind, the rotor spins up with its time constant, the DC-motor generator gives U = kₑω, and an LED lights above 2 V. |
 | Take the devices out and run them | "Құрылғыны шығару" lifts the tracker or the whole turbine (clamp, sleeve, tower, nacelle, rotor) out onto the table, still working. For the tracker the lamp is now further away, so the 1/d² drop in power is visible on the dashboard. |
 
-### How the assembled poses were found
+### How the assembled poses were found — and checked
 
-The print file has no assembly, so each pose was derived from geometry and
-checked by fit:
+The print file has no assembly, so each pose was derived from the parts'
+own features, measured from cross-sections of the meshes:
 
-- wall panels sit in the 3.5 mm slots of the corner posts — slot centre
-  lines measured from cross-sections of the base at x = ±86.5, z = ±120 mm;
-- the top rim's locating holes match the post pins at ±82.7 mm;
-- a dome rib's tenon (local x 47.7–55.7 mm) drops into a rim socket, and
-  its upper end then lands at r = 8.6 mm, y = 192.5–203.3 mm — exactly the
-  10.8 mm-deep cross slots under the sun hub (S11);
-- the wind guard's legs and arcs meet in half-lap joints, and the crown's
-  bolt holes line up with the arcs' (one side is mirrored so the laps are
-  complementary);
-- copies the slicer laid on the bed turned (blade W26 #2, clamps W07C) are
-  matched to their siblings by vertex comparison and pre-rotated.
+- wall panels: 3.0 mm bodies (lettering and relief stand proud of the
+  outer face) centred in 3.5 mm grooves — solar at x = ±86.5, z = ±120,
+  wind at x = ±86.0, z = ±120.5 — standing on the groove floor, y = −30;
+- top rims on the post pins: solar pins at (±83, 116.49 / −49.51), wind at
+  (82.49 / −15.51, ±117); dome ribs' tenons in the rim sockets, landing in
+  the sun hub's 10.8 mm cross slots;
+- electronics trays on their four bay standoffs (top y = −22); deck lip
+  clamps hooked over the deck's raised border;
+- tower stack: the clamp's floor carries the tower, the sleeve drops into
+  the collar upside down so its flange rests on the collar's rim;
+- nacelle: its motor tube runs 8.2 mm above the part's print origin, which
+  sets the rotor and tail-cap height; the cap's plug fits the tube's open
+  end;
+- rotor: blade root pins (r 4.0, axis at print x 6.04, y −0.5) lie between
+  the two hub halves, whose grooves leave a 0.34 mm gap; the front half is
+  turned so its pockets meet the rear half's at 0/120/240°;
+- guard: legs and arcs meet in complementary half-laps, and the crown is
+  turned so its pockets take the arc ends from below — its bolt holes and
+  the arcs' then line up, and its wave lettering faces the front.
+
+`npm run verify:stem` (`scripts/verify-stem.mjs`) checks all of it against
+the geometry. It voxelises every part at 0.5 mm in its assembled pose and
+fails on any two parts sharing solid, on a part that touches nothing, on a
+part that the animation would bring in before whatever it rests on, on a
+box not standing on the table, on the rotor sweeping through anything over
+the whole yaw range, on the tracker's bracket or module hitting the box —
+or its own servos, bracket and base — at any pan and tilt,
+and on a device taken out that does not land on the table. It also reports
+open or non-manifold meshes in the print file — the one remaining warning
+is the rotor blade (W26), which has 3 non-manifold edges and 32 degenerate
+triangles in the source model; slicers repair that on import.
+
+`node scripts/verify-stem.mjs --fit W22 --axes x --range 10` is the tool
+that found several of these poses: it slides one part over a grid of
+offsets and lists the nearest ones where it clashes with nothing.
 
 Two things are not in the print file and are drawn separately: the
-tracker's electronics (servos, bracket, mini module, LDR cross) and the
+tracker's electronics (servos, bracket, mini module, LDR cross), defined
+once in `src/stem/trackerGeometry.js` so the scene and the audit use the
+same blocks — U-bracket arms outside the module's width, tilt servo on the
+outside of one arm, axis 102 mm above the deck so the module clears the
+bracket at full tilt — and the
 lamp and fan that play the sun and the wind. The turbine and the solar deck
 are shown in the drawing's light grey; everything else keeps its filament
 colour (#3B3F45 body, #F5C400 solar, #1F8FD1 wind).

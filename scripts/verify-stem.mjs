@@ -16,8 +16,9 @@
  *                   touching nothing is floating, i.e. its pose is wrong
  *   5. ground       the feet stand on the table, nothing is below it
  *   6. motion       the rotor's swept disc over the whole yaw range, the
- *                   tracker's panel over its whole tilt range and the lamp
- *                   over its whole path are checked against the box
+ *                   tracker's bracket and module over its whole pan/tilt
+ *                   range (against the box and against its own servos,
+ *                   bracket and base) and the lamp over its whole path
  *   7. out          a device lifted out onto the table lands on the table
  *                   and clear of its box
  *
@@ -34,6 +35,9 @@ import {
   TRACKER, LAMP, PAN_OFFSET, lampPosition,
 } from '../src/stem/stemEngine.js';
 import { OUT_OFFSETS, TABLE_Y } from '../src/stem/boxLayout.js';
+import {
+  BASE_BLOCKS, PAN_BLOCKS, TILT_BLOCKS, CELLS, PAN_HEIGHT, TILT_AXIS,
+} from '../src/stem/trackerGeometry.js';
 
 const RES = 0.5;                 // voxel edge, mm
 
@@ -271,16 +275,14 @@ function boxPoints([sx, sy, sz], [cx, cy, cz], step = 1) {
   return pts;
 }
 
-/**
- * The tracker's moving head, in the tilt frame (origin on the tilt axis),
- * mirroring TrackerDevice in StemBoxScene.jsx.
- */
-function trackerHeadPoints() {
-  return [
-    ...boxPoints([130, 4, 84], [0, 6, 0], 1.5),           // module frame
-    ...boxPoints([22, 3, 14], [0, 8, -48], 1),            // LDR board
-    ...boxPoints([22, 12, 14], [0, 15, -48], 1),          // LDR cross shade
-  ];
+/** Surface sample points of a block list, each tagged with its block. */
+function blockPoints(blocks, step = 1.5) {
+  return blocks.flatMap((b, i) => boxPoints(b.size, b.pos, step).map((p) => Object.assign(p, { block: i })));
+}
+
+/** Is a point inside a block (shrunk by `inset` so touching faces pass)? */
+function inBlock(p, b, inset = 0.25) {
+  return [0, 1, 2].every((a) => Math.abs(p.getComponent(a) - b.pos[a]) < b.size[a] / 2 - inset);
 }
 
 // ---------------------------------------------------------------------------
@@ -477,30 +479,73 @@ function auditRotor(wind) {
 // ---------------------------------------------------------------------------
 // motion: solar tracker and lamp
 // ---------------------------------------------------------------------------
+/**
+ * The tracker over its whole pan/tilt range: every moving block against
+ * the printed box, and the module against the tracker's own bracket,
+ * servos and base -- the check that would have caught the tilt servo
+ * standing up through the glass.
+ */
+function trackerPose(pan, tilt) {
+  const qPan = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), THREE.MathUtils.degToRad(pan + PAN_OFFSET));
+  const qTilt = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), THREE.MathUtils.degToRad(tilt));
+  return { qPan, qTilt };
+}
+
 function auditTracker(solar, offset = [0, 0, 0], label = 'in the box') {
-  const head0 = trackerHeadPoints();
-  const pivot = new THREE.Vector3(...TRACKER.pivot).add(new THREE.Vector3(...offset));
+  const deck = new THREE.Vector3(...SOLAR_DECK.centre).add(new THREE.Vector3(...offset));
+  const panPts = blockPoints(PAN_BLOCKS);
+  const tiltPts = blockPoints([...TILT_BLOCKS, ...CELLS]);
   const hits = new Map();
   for (let pan = -40; pan <= 40; pan += 10) {
     for (let tilt = -TRACKER.tiltMax; tilt <= TRACKER.tiltMax; tilt += 5) {
-      const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(
-        THREE.MathUtils.degToRad(tilt), THREE.MathUtils.degToRad(pan + PAN_OFFSET), 0, 'YXZ',
-      ));
-      for (const p of head0) {
-        const w = p.clone().applyQuaternion(q).add(pivot);
-        const o = solar.grid.ownerAt([w.x, w.y, w.z]);
-        if (o) {
+      const { qPan, qTilt } = trackerPose(pan, tilt);
+      const toWorld = (p, tilted) => {
+        const v = p.clone();
+        if (tilted) v.applyQuaternion(qTilt).add(new THREE.Vector3(0, TILT_AXIS, 0));
+        return v.applyQuaternion(qPan).add(new THREE.Vector3(0, PAN_HEIGHT, 0)).add(deck);
+      };
+      for (const [pts, tilted] of [[panPts, false], [tiltPts, true]]) {
+        for (const p of pts) {
+          const w = toWorld(p, tilted);
+          const o = solar.grid.ownerAt([w.x, w.y, w.z]);
+          if (!o) continue;
           const pid = solar.labelOf.get(o);
-          const prev = hits.get(pid);
-          if (!prev) hits.set(pid, { pan, tilt, n: 1 });
-          else prev.n++;
+          if (!hits.has(pid)) hits.set(pid, { pan, tilt });
         }
       }
     }
   }
   if (hits.size) {
-    for (const [pid, h] of hits) fail(`tracker head ${label} hits ${pid} (e.g. pan ${h.pan}°, tilt ${h.tilt}°)`);
-  } else ok(`tracker head ${label} clears the box over pan ±40°, tilt ±${TRACKER.tiltMax}°`);
+    for (const [pid, h] of hits) fail(`tracker ${label} hits ${pid} (e.g. pan ${h.pan}°, tilt ${h.tilt}°)`);
+  } else ok(`tracker ${label} clears the box over pan ±40°, tilt ±${TRACKER.tiltMax}°`);
+}
+
+/** The module and its sensors against the tracker's own bracket, servos and base. */
+function auditTrackerSelf() {
+  // The shaft runs through the arms and the servo by design.
+  const moving = blockPoints(TILT_BLOCKS.slice(1).concat(CELLS), 1);
+  const clashes = new Map();
+  for (let tilt = -TRACKER.tiltMax; tilt <= TRACKER.tiltMax; tilt += 2.5) {
+    const qTilt = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), THREE.MathUtils.degToRad(tilt));
+    for (const p of moving) {
+      // In the pan frame (the bracket turns with the pan, so pan drops out).
+      const inPan = p.clone().applyQuaternion(qTilt).add(new THREE.Vector3(0, TILT_AXIS, 0));
+      PAN_BLOCKS.forEach((b, i) => {
+        if (inBlock(inPan, b)) clashes.set(`pan block ${i} (${b.size.join('x')})`, tilt);
+      });
+      // The base does not turn with the pan; the worst case is any pan, so
+      // test the radius the point sweeps against the base blocks' extent.
+      const inBase = inPan.clone().add(new THREE.Vector3(0, PAN_HEIGHT, 0));
+      const r = Math.hypot(inBase.x, inBase.z);
+      BASE_BLOCKS.forEach((b, i) => {
+        const reach = Math.hypot(b.size[0], b.size[2]) / 2;
+        const top = b.pos[1] + b.size[1] / 2;
+        if (r < reach - 0.25 && inBase.y < top - 0.25) clashes.set(`base block ${i} (${b.size.join('x')})`, tilt);
+      });
+    }
+  }
+  if (clashes.size) for (const [what, tilt] of clashes) fail(`tracker module hits its own ${what} at tilt ${tilt}°`);
+  else ok(`tracker module clears its own bracket, servos and base over tilt ±${TRACKER.tiltMax}°`);
 }
 
 function auditLamp(solar) {
@@ -628,6 +673,7 @@ if (fitArg > 0) {
 
 const solar = auditBox('solar', SOLAR_PARTS, source);
 head('-- tracker and lamp');
+auditTrackerSelf();
 auditTracker(solar);
 auditTracker(solar, OUT_OFFSETS.solar, 'taken out');
 const deckTop = SOLAR_DECK.centre[1] + OUT_OFFSETS.solar[1];

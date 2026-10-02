@@ -12,6 +12,7 @@
  */
 
 import { SOLAR_DECK } from './boxAssembly.js';
+import { AXIS_ABOVE_DECK } from './trackerGeometry.js';
 
 const DEG = Math.PI / 180;
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -20,8 +21,8 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 // solar
 // ---------------------------------------------------------------------------
 export const TRACKER = {
-  /** Pan/tilt pivot, 75 mm above the deck's inner top face at its centre. */
-  pivot: [SOLAR_DECK.centre[0], SOLAR_DECK.centre[1] + 75, SOLAR_DECK.centre[2]],
+  /** Pan/tilt pivot above the deck centre (see trackerGeometry.js). */
+  pivot: [SOLAR_DECK.centre[0], SOLAR_DECK.centre[1] + AXIS_ABOVE_DECK, SOLAR_DECK.centre[2]],
   /** Mini module: 110 x 70 mm of cells, 18 % -- a typical "6 V 1.5 W" board. */
   cellArea: 0.110 * 0.070,
   efficiency: 0.18,

@@ -283,7 +283,8 @@ the geometry. It voxelises every part at 0.5 mm in its assembled pose and
 fails on any two parts sharing solid, on a part that touches nothing, on a
 part that the animation would bring in before whatever it rests on, on a
 box not standing on the table, on the rotor sweeping through anything over
-the whole yaw range, on the tracker's panel hitting the box at any tilt,
+the whole yaw range, on the tracker's bracket or module hitting the box —
+or its own servos, bracket and base — at any pan and tilt,
 and on a device taken out that does not land on the table. It also reports
 open or non-manifold meshes in the print file — the one remaining warning
 is the rotor blade (W26), which has 3 non-manifold edges and 32 degenerate
@@ -294,7 +295,11 @@ that found several of these poses: it slides one part over a grid of
 offsets and lists the nearest ones where it clashes with nothing.
 
 Two things are not in the print file and are drawn separately: the
-tracker's electronics (servos, bracket, mini module, LDR cross) and the
+tracker's electronics (servos, bracket, mini module, LDR cross), defined
+once in `src/stem/trackerGeometry.js` so the scene and the audit use the
+same blocks — U-bracket arms outside the module's width, tilt servo on the
+outside of one arm, axis 102 mm above the deck so the module clears the
+bracket at full tilt — and the
 lamp and fan that play the sun and the wind. The turbine and the solar deck
 are shown in the drawing's light grey; everything else keeps its filament
 colour (#3B3F45 body, #F5C400 solar, #1F8FD1 wind).

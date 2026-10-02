@@ -31,10 +31,13 @@ import {
 } from '../../stem/boxAssembly.js';
 import { buildBox, MM } from '../../stem/stemBoxes.js';
 import {
-  stemEngine, lampPosition, TRACKER, PAN_OFFSET,
+  stemEngine, lampPosition, PAN_OFFSET,
 } from '../../stem/stemEngine.js';
 import { useBox } from '../../stem/boxStore.js';
 import { OUT_OFFSETS, TABLE_Y } from '../../stem/boxLayout.js';
+import {
+  BASE_BLOCKS, PAN_BLOCKS, TILT_BLOCKS, CELLS, LDR_SPOTS, PAN_HEIGHT, TILT_AXIS,
+} from '../../stem/trackerGeometry.js';
 import { T } from '../../i18n/strings.js';
 
 const MODEL_URL = '/models/stem-boxes.glb';
@@ -77,78 +80,36 @@ function stepProgress(assembly, stepIndex, n) {
 // electronics it carries)
 // ---------------------------------------------------------------------------
 function TrackerDevice({ panRef, tiltRef }) {
-  const grey = useMemo(() => new THREE.MeshStandardMaterial({ color: '#a7aeb6', roughness: 0.5 }), []);
-  const dark = useMemo(() => new THREE.MeshStandardMaterial({ color: '#2b3038', roughness: 0.6 }), []);
-  const cell = useMemo(() => new THREE.MeshStandardMaterial({
-    color: '#1d3f8a', roughness: 0.25, metalness: 0.2,
+  const materials = useMemo(() => ({
+    grey: new THREE.MeshStandardMaterial({ color: '#a7aeb6', roughness: 0.5 }),
+    // Bent aluminium bracket: darker and metallic, so it reads as hardware
+    // behind the module rather than as a pale block beside it.
+    metal: new THREE.MeshStandardMaterial({ color: '#6f7780', roughness: 0.4, metalness: 0.6 }),
+    dark: new THREE.MeshStandardMaterial({ color: '#2b3038', roughness: 0.6 }),
+    cell: new THREE.MeshStandardMaterial({ color: '#1d3f8a', roughness: 0.25, metalness: 0.2 }),
+    ldr: new THREE.MeshStandardMaterial({ color: '#c0392b', roughness: 0.4 }),
   }), []);
-  const ldr = useMemo(() => new THREE.MeshStandardMaterial({ color: '#c0392b', roughness: 0.4 }), []);
-  const axisY = TRACKER.pivot[1] - SOLAR_DECK.centre[1];
 
-  const cells = [];
-  for (let i = 0; i < 6; i++) {
-    for (let j = 0; j < 4; j++) {
-      cells.push([-52.5 + i * 21 + 10, (j - 1.5) * 18.5]);
-    }
-  }
+  const blocks = (list) => list.map((b, i) => (
+    <mesh key={i} material={materials[b.look]} position={b.pos} castShadow receiveShadow>
+      <boxGeometry args={b.size} />
+    </mesh>
+  ));
 
+  // One geometry, shared with scripts/verify-stem.mjs: see trackerGeometry.js.
   return (
     <group>
-      {/* Base plate bolted into the deck's T-slots, and the pan servo. */}
-      <mesh material={dark} position={[0, 2, 0]} castShadow receiveShadow>
-        <boxGeometry args={[64, 4, 64]} />
-      </mesh>
-      <mesh material={grey} position={[0, 4 + 19, 0]} castShadow>
-        <boxGeometry args={[22, 38, 42]} />
-      </mesh>
-      <group ref={panRef} position={[0, 42, 0]}>
-        <mesh material={dark} position={[0, 1.5, 0]} castShadow>
-          <cylinderGeometry args={[14, 14, 3, 32]} />
-        </mesh>
-        {/* U-bracket */}
-        <mesh material={grey} position={[0, 4.5, 0]} castShadow>
-          <boxGeometry args={[78, 3, 22]} />
-        </mesh>
-        {[-38, 38].map((x) => (
-          <mesh key={x} material={grey} position={[x, 4.5 + (axisY - 42) / 2, 0]} castShadow>
-            <boxGeometry args={[3, axisY - 42 + 6, 22]} />
-          </mesh>
-        ))}
-        {/* Tilt servo on the bracket's right cheek. */}
-        <mesh material={grey} position={[49, axisY - 42, 0]} castShadow>
-          <boxGeometry args={[18, 22, 40]} />
-        </mesh>
-        <group ref={tiltRef} position={[0, axisY - 42, 0]}>
-          <mesh material={dark} rotation={[0, 0, Math.PI / 2]} castShadow>
-            <cylinderGeometry args={[4, 4, 80, 16]} />
-          </mesh>
-          {/* The module: aluminium frame, 24 cells. */}
-          <mesh material={grey} position={[0, 6, 0]} castShadow receiveShadow>
-            <boxGeometry args={[130, 4, 84]} />
-          </mesh>
-          {cells.map(([x, z]) => (
-            <mesh key={`${x}:${z}`} material={cell} position={[x, 8.3, z]}>
-              <boxGeometry args={[19.5, 0.6, 17]} />
+      {blocks(BASE_BLOCKS)}
+      <group ref={panRef} position={[0, PAN_HEIGHT, 0]}>
+        {blocks(PAN_BLOCKS)}
+        <group ref={tiltRef} position={[0, TILT_AXIS, 0]}>
+          {blocks(TILT_BLOCKS)}
+          {blocks(CELLS)}
+          {LDR_SPOTS.map((spot) => (
+            <mesh key={spot.pos.join()} material={materials.ldr} position={spot.pos}>
+              <cylinderGeometry args={[2.2, 2.2, 1.5, 12]} />
             </mesh>
           ))}
-          {/* Four light sensors behind a cross-shaped shade: the eyes of the
-              tracker. Unequal light on them is the error the servos null. */}
-          <group position={[0, 8, -48]}>
-            <mesh material={dark} position={[0, 0, 0]}>
-              <boxGeometry args={[22, 3, 14]} />
-            </mesh>
-            <mesh material={dark} position={[0, 7, 0]}>
-              <boxGeometry args={[1.6, 12, 14]} />
-            </mesh>
-            <mesh material={dark} position={[0, 7, 0]}>
-              <boxGeometry args={[22, 12, 1.6]} />
-            </mesh>
-            {[[-5, -3.5], [5, -3.5], [-5, 3.5], [5, 3.5]].map(([x, z]) => (
-              <mesh key={`${x}${z}`} material={ldr} position={[x, 2, z]}>
-                <cylinderGeometry args={[2.2, 2.2, 1.5, 12]} />
-              </mesh>
-            ))}
-          </group>
         </group>
       </group>
     </group>
@@ -266,7 +227,7 @@ function Box({ id }) {
         it.pivot.traverse((o) => {
           if (!o.isMesh) return;
           o.material = o.material.clone();
-          o.material.color.set(PALE_DECK.has(it.id) ? '#b9c0c8' : '#a7aeb6');
+          o.material.color.set(PALE_DECK.has(it.id) ? '#9aa3ad' : '#a7aeb6');
         });
       }
     });

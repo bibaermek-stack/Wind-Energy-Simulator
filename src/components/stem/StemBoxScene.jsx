@@ -492,17 +492,19 @@ function CameraRig() {
   );
 }
 
+const TABLE_EDGE = new THREE.MeshStandardMaterial({ color: '#c8b38c', roughness: 0.85 });
+const TABLE_TOP = new THREE.MeshStandardMaterial({ color: '#d9c7a6', roughness: 0.8 });
+// BoxGeometry face order: +x, -x, +y, -y, +z, -z.
+const TABLE_MATERIALS = [TABLE_EDGE, TABLE_EDGE, TABLE_TOP, TABLE_EDGE, TABLE_EDGE, TABLE_EDGE];
+
 function Room() {
   return (
     <>
-      {/* Table top: light birch laminate. */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.0005, 0]} receiveShadow>
-        <planeGeometry args={[1.8, 1.1]} />
-        <meshStandardMaterial color="#d9c7a6" roughness={0.8} />
-      </mesh>
-      <mesh position={[0, -0.0205, 0]} receiveShadow>
+      {/* One slab: birch laminate on top, darker edge banding on the sides.
+          A separate top plane flickered against the slab's own top face --
+          the two were coplanar, so the depth test picked either at random. */}
+      <mesh position={[0, -0.02, 0]} receiveShadow material={TABLE_MATERIALS}>
         <boxGeometry args={[1.8, 0.04, 1.1]} />
-        <meshStandardMaterial color="#c8b38c" roughness={0.85} />
       </mesh>
       {/* Floor far below, so the table edge reads as an edge. */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.75, 0]} receiveShadow>

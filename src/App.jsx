@@ -29,6 +29,8 @@ import SolarChartPanel from './components/ui/SolarChart.jsx';
 import TrackingComparison from './components/ui/TrackingComparison.jsx';
 import SolarTheory from './components/ui/SolarTheory.jsx';
 import EnergyFlow from './components/ui/EnergyFlow.jsx';
+import StemBoxScene from './components/stem/StemBoxScene.jsx';
+import { BoxControls, BoxDashboard, BoxTheory } from './components/stem/StemBoxPanels.jsx';
 import { RotorMark, ChevronLeftIcon, ChevronRightIcon } from './components/ui/primitives.jsx';
 import { useSimulation } from './state/simulationStore.js';
 import { MODES, MODE_ORDER, MODE_TABS, modeOf } from './modes/energyModes.js';
@@ -108,6 +110,8 @@ function Header() {
 function Controls() {
   const mode = modeOf(useSimulation((s) => s.mode));
 
+  if (mode.isBox) return <BoxControls />;
+
   return (
     <>
       {mode.hasWind && (
@@ -126,6 +130,8 @@ function RailContents() {
   const modeId = useSimulation((s) => s.mode);
   const activeTab = useSimulation((s) => s.activeTab);
   const mode = modeOf(modeId);
+
+  if (mode.isBox) return activeTab === 'theory' ? <BoxTheory /> : <BoxDashboard />;
 
   if (activeTab === 'flow') return <EnergyFlow />;
 
@@ -181,7 +187,10 @@ export default function App() {
 
       <main className="stage" data-sheet-open={!rightCollapsed}>
         <div className="stage__canvas">
-          <WindTurbineScene />
+          {/* The boxes sit on a table at desk scale, in a scene of their
+              own. The landscape is unmounted meanwhile, so its engines
+              pause and pick up where they were on the way back. */}
+          {modeOf(mode).isBox ? <StemBoxScene /> : <WindTurbineScene />}
         </div>
 
         <aside className="rail rail--left" data-collapsed={leftCollapsed}>

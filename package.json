@@ -11,7 +11,8 @@
     "models:small": "node scripts/generate-small-turbine.mjs",
     "models:optimize": "node scripts/optimize-models.mjs",
     "models:solar": "node scripts/build-solar.mjs",
-    "models": "npm run models:optimize && npm run models:small && npm run models:solar",
+    "models:stem": "node scripts/build-stem-boxes.mjs",
+    "models": "npm run models:optimize && npm run models:small && npm run models:solar && npm run models:stem",
     "verify:physics": "node scripts/verify-physics.mjs",
     "verify:solar": "node scripts/verify-solar.mjs",
     "verify": "npm run verify:physics && npm run verify:solar"
